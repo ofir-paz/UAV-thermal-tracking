@@ -1,3 +1,4 @@
+
 from typing import List, Tuple, Optional
 import numpy as np
 import cv2
@@ -20,7 +21,8 @@ class BoundingBox:
 
 class Overlay:
     """A class to manage a collection of bounding boxes for a single frame."""
-    def __init__(self, bounding_boxes: List[BoundingBox]):
+    def __init__(self, name: str, bounding_boxes: List[BoundingBox]):
+        self.name = name
         self.bounding_boxes = bounding_boxes
 
     def apply(self, frame: np.ndarray):

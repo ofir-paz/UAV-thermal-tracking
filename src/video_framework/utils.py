@@ -1,9 +1,8 @@
-
 import csv
-from typing import Dict
+from typing import Dict, Tuple
 from .overlays import Overlay, BoundingBox
 
-def load_bounding_boxes_from_csv(filepath: str) -> Dict[int, Overlay]:
+def load_bounding_boxes_from_csv(filepath: str, overlay_name: str = "default_overlay") -> Dict[int, Dict[str, Overlay]]:
     """
     Loads bounding boxes from a CSV file.
 
@@ -12,11 +11,12 @@ def load_bounding_boxes_from_csv(filepath: str) -> Dict[int, Overlay]:
 
     Args:
         filepath: The path to the CSV file.
+        overlay_name: The name to assign to this set of overlays.
 
     Returns:
-        A dictionary mapping frame numbers to Overlay objects.
+        A dictionary mapping frame numbers to a dictionary of Overlay objects (keyed by overlay_name).
     """
-    overlays: Dict[int, Overlay] = {}
+    overlays_by_frame: Dict[int, Dict[str, Overlay]] = {}
     with open(filepath, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -27,12 +27,16 @@ def load_bounding_boxes_from_csv(filepath: str) -> Dict[int, Overlay]:
             height = int(row["height"])
             label = row.get("label")
             color_str = row.get("color")
-            color = tuple(map(int, color_str.split(','))) if color_str else (0, 255, 0)
+            color: Tuple[int, int, int] = tuple(map(int, color_str.split(','))) if color_str else (0, 255, 0)
 
             bbox = BoundingBox(x, y, width, height, label, color)
 
-            if frame_number not in overlays:
-                overlays[frame_number] = Overlay(bounding_boxes=[])
-            overlays[frame_number].bounding_boxes.append(bbox)
+            if frame_number not in overlays_by_frame:
+                overlays_by_frame[frame_number] = {}
             
-    return overlays
+            if overlay_name not in overlays_by_frame[frame_number]:
+                overlays_by_frame[frame_number][overlay_name] = Overlay(name=overlay_name, bounding_boxes=[])
+            
+            overlays_by_frame[frame_number][overlay_name].bounding_boxes.append(bbox)
+            
+    return overlays_by_frame

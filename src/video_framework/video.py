@@ -24,8 +24,10 @@ class Video:
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        self.transforms: List[Callable[[np.ndarray], np.ndarray]] = []
-        self.overlays: Dict[int, Overlay] = {}
+        self.transforms: Dict[str, Callable[[np.ndarray], np.ndarray]] = {}
+        self.active_transforms: List[str] = []
+        self.overlays: Dict[int, Dict[str, Overlay]] = {}
+        self.active_overlays: List[str] = []
 
     def __enter__(self):
         return self
@@ -43,8 +45,8 @@ class Video:
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         return self
 
-    def __next__(self) -> Tuple[np.ndarray, Optional[Overlay]]:
-        """Returns the next frame of the video and its corresponding overlay."""
+    def __next__(self) -> Tuple[np.ndarray, Dict[str, Overlay]]:
+        """Returns the next frame of the video and its corresponding active overlays."""
         frame_number = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
         ret, frame = self.cap.read()
         if not ret:
@@ -52,21 +54,38 @@ class Video:
 
         processed_frame = frame.copy()
 
-        for transform in self.transforms:
-            processed_frame = transform(processed_frame)
+        for transform_name in self.active_transforms:
+            if transform_name in self.transforms:
+                processed_frame = self.transforms[transform_name](processed_frame)
 
-        overlay = self.overlays.get(frame_number)
+        active_frame_overlays = {}
+        if frame_number in self.overlays:
+            for overlay_name in self.active_overlays:
+                if overlay_name in self.overlays[frame_number]:
+                    active_frame_overlays[overlay_name] = self.overlays[frame_number][overlay_name]
 
-        return processed_frame, overlay
+        return processed_frame, active_frame_overlays
 
-    def add_transform(self, transform: Callable[[np.ndarray], np.ndarray]):
+    def add_transform(self, name: str, transform_func: Callable[[np.ndarray], np.ndarray]):
         """
-        Adds a transformation to be applied to each frame.
+        Adds a transformation function to be applied to each frame.
 
         Args:
-            transform: A function that takes a frame (NumPy array) and returns a transformed frame.
+            name: A unique name for the transformation.
+            transform_func: A function that takes a frame (NumPy array) and returns a transformed frame.
         """
-        self.transforms.append(transform)
+        self.transforms[name] = transform_func
+        self.active_transforms.append(name)
+
+    def set_transform_active(self, name: str, active: bool):
+        """
+        Sets the active state of a transformation.
+        """
+        if name in self.transforms:
+            if active and name not in self.active_transforms:
+                self.active_transforms.append(name)
+            elif not active and name in self.active_transforms:
+                self.active_transforms.remove(name)
 
     def add_overlay_to_frame(self, frame_number: int, overlay: Overlay):
         """
@@ -76,21 +95,37 @@ class Video:
             frame_number: The frame number to apply the overlay to.
             overlay: An Overlay object.
         """
-        self.overlays[frame_number] = overlay
+        if frame_number not in self.overlays:
+            self.overlays[frame_number] = {}
+        self.overlays[frame_number][overlay.name] = overlay
+        if overlay.name not in self.active_overlays:
+            self.active_overlays.append(overlay.name)
 
-    def add_overlays(self, overlays: Dict[int, Overlay]):
+    def add_overlays(self, overlays_by_frame: Dict[int, Dict[str, Overlay]]):
         """
-        Adds a dictionary of overlays, mapping frame numbers to Overlay objects.
+        Adds a dictionary of overlays, mapping frame numbers to dictionaries of Overlay objects.
+        """
+        for frame_number, frame_overlays in overlays_by_frame.items():
+            if frame_number not in self.overlays:
+                self.overlays[frame_number] = {}
+            self.overlays[frame_number].update(frame_overlays)
+            for overlay_name in frame_overlays.keys():
+                if overlay_name not in self.active_overlays:
+                    self.active_overlays.append(overlay_name)
 
-        Args:
-            overlays: A dictionary of overlays.
+    def set_overlay_active(self, name: str, active: bool):
         """
-        self.overlays.update(overlays)
+        Sets the active state of an overlay.
+        """
+        if active and name not in self.active_overlays:
+            self.active_overlays.append(name)
+        elif not active and name in self.active_overlays:
+            self.active_overlays.remove(name)
 
     def save_frames_where(self, predicate: Callable[[np.ndarray], bool], output_dir: str = "output"):
         """
         Saves frames from the video that satisfy a given predicate.
-        The predicate is applied on the transformed frame. Overlays are applied to the saved image.
+        The predicate is applied on the transformed frame. Active overlays are applied to the saved image.
         """
         os.makedirs(output_dir, exist_ok=True)
 
@@ -102,14 +137,16 @@ class Video:
                 break
 
             processed_frame = frame.copy()
-            for transform in self.transforms:
-                processed_frame = transform(processed_frame)
+            for transform_name in self.active_transforms:
+                if transform_name in self.transforms:
+                    processed_frame = self.transforms[transform_name](processed_frame)
 
             if predicate(processed_frame):
                 output_frame = processed_frame.copy()
-                overlay = self.overlays.get(frame_idx)
-                if overlay:
-                    output_frame = overlay.apply(output_frame)
+                if frame_idx in self.overlays:
+                    for overlay_name in self.active_overlays:
+                        if overlay_name in self.overlays[frame_idx]:
+                            output_frame = self.overlays[frame_idx][overlay_name].apply(output_frame)
 
                 filepath = os.path.join(output_dir, f"frame_{frame_idx}.jpg")
                 cv2.imwrite(filepath, output_frame)
