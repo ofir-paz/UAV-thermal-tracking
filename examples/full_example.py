@@ -1,5 +1,5 @@
 import cv2
-from video_framework import Video, Player, load_bounding_boxes_from_csv, canny_edge_detector
+from video_framework import Video, DesktopPlayer, load_bounding_boxes_from_csv, canny_edge_detector
 import numpy as np
 
 def main():
@@ -19,14 +19,14 @@ def main():
         # Define a predicate to save frames with a high number of edges
         def has_many_edges(frame: np.ndarray) -> bool:
             # A simple edge count check
-            return bool(np.sum(frame > 0) > 100000) # Threshold for number of edge pixels
+            return bool(np.sum(frame > 0) > 500000) # Threshold for number of edge pixels
 
         # Save frames based on the predicate
         video.save_frames_where(has_many_edges, output_dir="examples/edge_frames")
 
         # Play the video with interactive controls
-        player = Player(video)
-        player.play()
+        player = DesktopPlayer(video)
+        player.show()
 
 if __name__ == "__main__":
     main()
