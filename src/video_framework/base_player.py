@@ -19,10 +19,7 @@ class BasePlayer(ABC):
         os.makedirs(self.output_dir, exist_ok=True)
 
     def _play(self):
-        if not self.playing:
-            self.playing = True
-            self.thread = threading.Thread(target=self._stream_video)
-            self.thread.start()
+        self.playing = True
 
     def _pause(self):
         self.playing = False
@@ -64,12 +61,10 @@ class BasePlayer(ABC):
         """Abstract method to update the displayed frame. Must be implemented by subclasses."""
         pass
 
+    @abstractmethod
     def _stream_video(self):
-        while self.playing and self.current_frame_index < self.video.frame_count - 1:
-            self.current_frame_index += 1
-            self._update_frame()
-            time.sleep(1 / self.video.fps)
-        self.playing = False
+        """Abstract method for video streaming logic. Implemented by subclasses."""
+        pass
 
     @abstractmethod
     def show(self):

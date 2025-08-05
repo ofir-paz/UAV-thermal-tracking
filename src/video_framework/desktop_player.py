@@ -14,32 +14,34 @@ class DesktopPlayer(BasePlayer):
         self.window_name = window_name
         self.current_frame = None
         self.trackbar_name = "Frame"
-        self.lock = threading.Lock() # To protect shared resources
+        self.key_map = {}
+        self.next_key_code = ord('1') # Start assigning keys from '1'
+
+    def _get_next_key(self):
+        key = chr(self.next_key_code)
+        self.next_key_code += 1
+        return key
 
     def _update_frame(self):
-        with self.lock:
-            self.video.cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
-            ret, frame = self.video.cap.read()
-            if ret:
-                processed_frame = frame.copy()
-                for transform_name in self.video.active_transforms:
-                    if transform_name in self.video.transforms:
-                        processed_frame = self.video.transforms[transform_name](processed_frame)
-                
-                if self.current_frame_index in self.video.overlays:
-                    for overlay_name in self.video.active_overlays:
-                        if overlay_name in self.video.overlays[self.current_frame_index]:
-                            processed_frame = self.video.overlays[self.current_frame_index][overlay_name].apply(processed_frame)
-                self.current_frame = processed_frame
-                cv2.imshow(self.window_name, self.current_frame)
-                cv2.setTrackbarPos(self.trackbar_name, self.window_name, self.current_frame_index)
+        self.video.cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
+        ret, frame = self.video.cap.read()
+        if ret:
+            processed_frame = frame.copy()
+            for transform_name in self.video.active_transforms:
+                if transform_name in self.video.transforms:
+                    processed_frame = self.video.transforms[transform_name](processed_frame)
+            
+            if self.current_frame_index in self.video.overlays:
+                for overlay_name in self.video.active_overlays:
+                    if overlay_name in self.video.overlays[self.current_frame_index]:
+                        processed_frame = self.video.overlays[self.current_frame_index][overlay_name].apply(processed_frame)
+            self.current_frame = processed_frame
+            cv2.imshow(self.window_name, self.current_frame)
+            cv2.setTrackbarPos(self.trackbar_name, self.window_name, self.current_frame_index)
 
     def _stream_video(self):
-        while self.playing and self.current_frame_index < self.video.frame_count - 1:
-            self.current_frame_index += 1
-            # _update_frame is now called by the main loop
-            time.sleep(1 / self.video.fps)
-        self.playing = False
+        # DesktopPlayer handles streaming in its main loop, no separate thread needed
+        pass
 
     def _on_trackbar_change(self, frame_pos):
         if abs(self.current_frame_index - frame_pos) > 1 or not self.playing: # Only seek if significant change or not playing
@@ -59,6 +61,22 @@ class DesktopPlayer(BasePlayer):
         print(f"  - Q: Quit\n")
         print(f"  - Use the trackbar to seek frames\n")
 
+        print(f"\nTransformation Toggles:\n")
+        for name in self.video.transforms.keys():
+            key = self._get_next_key()
+            self.key_map[ord(key)] = ("transform", name)
+            print(f"  - {key}: Toggle Transformation '{name}'\n")
+
+        print(f"\nOverlay Toggles:\n")
+        all_overlay_names = set()
+        for frame_overlays in self.video.overlays.values():
+            for name in frame_overlays.keys():
+                all_overlay_names.add(name)
+        for name in sorted(list(all_overlay_names)):
+            key = self._get_next_key()
+            self.key_map[ord(key)] = ("overlay", name)
+            print(f"  - {key}: Toggle Overlay '{name}'\n")
+
         while True:
             if self.playing:
                 self.current_frame_index += 1
@@ -77,6 +95,14 @@ class DesktopPlayer(BasePlayer):
                     self._play()
             elif key == ord('s'):
                 self._save_frame()
+            elif key in self.key_map:
+                item_type, name = self.key_map[key]
+                if item_type == "transform":
+                    current_state = name in self.video.active_transforms
+                    self._on_transform_toggle(name, not current_state)
+                elif item_type == "overlay":
+                    current_state = name in self.video.active_overlays
+                    self._on_overlay_toggle(name, not current_state)
 
         cv2.destroyAllWindows()
         self.video.release()
