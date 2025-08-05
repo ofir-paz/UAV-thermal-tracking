@@ -22,6 +22,12 @@ class DesktopPlayer(BasePlayer):
         self.next_key_code += 1
         return key
 
+    def _play(self):
+        self.playing = True
+
+    def _pause(self):
+        self.playing = False
+
     def _update_frame(self):
         self.video.cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
         ret, frame = self.video.cap.read()

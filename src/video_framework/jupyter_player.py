@@ -59,6 +59,15 @@ class JupyterPlayer(BasePlayer):
 
         self.container = widgets.VBox([self.image_widget, self.progress_slider, controls, toggles_box])
 
+    def _play(self):
+        if not self.playing:
+            self.playing = True
+            self.thread = threading.Thread(target=self._stream_video)
+            self.thread.start()
+
+    def _pause(self):
+        self.playing = False
+
     def _on_transform_toggle_wrapper(self, change):
         name = change.owner.description.replace('Transform: ', '')
         self._on_transform_toggle(name, change.new)
