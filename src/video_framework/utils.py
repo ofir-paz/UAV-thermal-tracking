@@ -27,7 +27,7 @@ def load_bounding_boxes_from_csv(filepath: str, overlay_name: str = "default_ove
             height = int(row["height"])
             label = row.get("label")
             color_str = row.get("color")
-            color: Tuple[int, int, int] = tuple(map(int, color_str.split(','))) if color_str else (0, 255, 0)
+            color: Tuple[int, int, int] = tuple(map(int, color_str.split(','))) if color_str else (0, 255, 0)  # type: ignore
 
             bbox = BoundingBox(x, y, width, height, label, color)
 
