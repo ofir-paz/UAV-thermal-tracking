@@ -2,8 +2,21 @@ import cv2
 import numpy as np
 from IPython.display import Video as IPythonVideo, display
 import os
+from dataclasses import dataclass
 from typing import Optional, Generator, Tuple, List, Literal
 from video_framework.video import Video
+
+
+@dataclass
+class VideoChunk:
+    start: int
+    end: int
+    frames: List[np.ndarray]
+
+    def __iter__(self):
+        yield self.start
+        yield self.end
+        yield self.frames
 
 
 class Streamer:
@@ -35,7 +48,14 @@ class Streamer:
             return round(value * self.fps)
         return int(value)
 
-    def stream(self, start: Optional[float] = None, end: Optional[float] = None, chunk_size: Optional[float] = None, overlap: float = 0, unit: Literal["frames", "seconds"] = 'frames') -> Generator[Tuple[int, int, List[np.ndarray]], None, None]:
+    def stream(
+            self, 
+            start: Optional[float] = None, 
+            end: Optional[float] = None, 
+            chunk_size: Optional[float] = None, 
+            overlap: float = 0, 
+            unit: Literal["frames", "seconds"] = 'frames'
+        ) -> Generator[VideoChunk, None, None]:
         """
         Generates video frames in chunks from a specified start to end point.
 
@@ -96,7 +116,7 @@ class Streamer:
                 break
 
             chunk_end_frame = chunk_start_frame + len(chunk_frames)
-            yield chunk_start_frame, chunk_end_frame, chunk_frames
+            yield VideoChunk(start=chunk_start_frame, end=chunk_end_frame, frames=chunk_frames)
             
             # Determine the start of the next chunk
             if chunk_size_frames == self.frame_count: # If streaming as one chunk, break after first yield

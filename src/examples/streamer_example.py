@@ -24,8 +24,8 @@ try:
 
     print("\n--- Streaming from 10 to 20 seconds with chunk_size=3 seconds ---")
     # Stream a specific segment from 10 to 20 seconds with 3-second chunks
-    for i, (start_frame, end_frame, frames) in enumerate(streamer.stream(start=10, end=20, chunk_size=3, unit='seconds')):
-        print(f"Chunk {i+1}: Start Frame={start_frame}, End Frame={end_frame}, Frames in Chunk={len(frames)}")
+    for i, chunk in enumerate(streamer.stream(start=10, end=20, chunk_size=3, unit='seconds')):
+        print(f"Chunk {i+1}: Start Frame={chunk.start}, End Frame={chunk.end}, Frames in Chunk={len(chunk.frames)}")
 
 except FileNotFoundError as e:
     print(f"Error: {e}. Please ensure the video file exists.")
