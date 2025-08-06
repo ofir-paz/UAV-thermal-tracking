@@ -1,15 +1,17 @@
 import cv2
-from video_framework import Video, DesktopPlayer, load_bounding_boxes_from_csv, canny_edge_detector
 import numpy as np
+from pathlib import Path
+from video_framework import Video, DesktopPlayer, load_bounding_boxes_from_csv, canny_edge_detector
 
 def main():
     """A full example demonstrating the features of the video framework."""
-    video_path = "testing/resources/sample.mp4"
-    annotations_path = "testing/resources/annotations.csv"
+    video_path = Path().resolve().parent.parent / "testing" / "resources" / "sample.mp4"
+    annotations_path = Path().resolve().parent.parent / "testing" / "resources" / "annotations.csv"
+    output_path = Path().resolve().parent.parent / "testing" / "output"
 
-    with Video(video_path) as video:
+    with Video(str(video_path)) as video:
         # Load bounding boxes from the CSV file
-        overlays = load_bounding_boxes_from_csv(annotations_path)
+        overlays = load_bounding_boxes_from_csv(str(annotations_path))
         video.add_overlays(overlays)
 
         # Add the Canny edge detector transformation
@@ -22,7 +24,7 @@ def main():
             return bool(np.sum(frame > 0) > 500000) # Threshold for number of edge pixels
 
         # Save frames based on the predicate
-        video.save_frames_where(has_many_edges, output_dir="examples/edge_frames")
+        video.save_frames_where(has_many_edges, output_dir=str(output_path / "edge_frames"))
 
         # Play the video with interactive controls
         player = DesktopPlayer(video)
