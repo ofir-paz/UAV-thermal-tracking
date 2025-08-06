@@ -3,7 +3,8 @@ import numpy as np
 from IPython.display import Video as IPythonVideo, display
 import os
 from dataclasses import dataclass
-from typing import Optional, Generator, Tuple, List, Literal
+from typing import Optional, Generator, List, Literal
+from collections import deque
 from video_framework.video import Video
 
 
@@ -42,6 +43,16 @@ class Streamer:
         self.frame_count = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.duration_seconds = self.frame_count / self.fps
 
+    def _read_frames_batch(self, num_frames: int) -> List[np.ndarray]:
+        """Reads a batch of frames from the video capture object."""
+        frames = []
+        for _ in range(num_frames):
+            ret, frame = self._cap.read()
+            if not ret:
+                break
+            frames.append(frame)
+        return frames
+
     def _convert_to_frames(self, value: float, unit: Literal["frames", "seconds"]) -> int:
         """Converts a value from seconds to frames if unit is 'seconds'."""
         if unit == 'seconds':
@@ -67,7 +78,7 @@ class Streamer:
             unit: The unit for chunk_size and overlap ('frames' or 'seconds').
 
         Yields:
-            A tuple (chunk_start_frame, chunk_end_frame, list_of_frames_in_chunk).
+            A VideoChunk object containing start, end, and frames.
         """
         if unit not in ['frames', 'seconds']:
             raise ValueError("Unit must be 'frames' or 'seconds'.")
@@ -90,49 +101,80 @@ class Streamer:
         if start_frame >= end_frame:
             raise ValueError("Start point must be before end point.")
 
+        # Initialize cache and prefetch buffer
+        self._frame_cache = deque() # Stores frames from the previous chunk that overlap with the current one
+        self._prefetch_buffer = deque() # Stores frames read ahead of time
+        self._current_prefetch_pos = start_frame # Tracks the position up to which frames have been prefetched
+
+        def _fill_prefetch_buffer(target_buffer_size: int):
+            """Fills the prefetch buffer up to target_buffer_size frames."""
+            frames_to_read_into_buffer = target_buffer_size - len(self._prefetch_buffer)
+            if frames_to_read_into_buffer > 0:
+                # Move the capture position to where we left off prefetching
+                self._cap.set(cv2.CAP_PROP_POS_FRAMES, self._current_prefetch_pos)
+                new_frames = self._read_frames_batch(frames_to_read_into_buffer)
+                self._prefetch_buffer.extend(new_frames)
+                self._current_prefetch_pos += len(new_frames)
+
+        # Initial prefetch: fill buffer with at least prefetch_factor chunks
+        _fill_prefetch_buffer(chunk_size_frames * 2) # Default prefetch_factor is 2
+
         current_pos = start_frame
         while True: # Loop indefinitely, break when no more frames or end_frame reached
-            self._cap.set(cv2.CAP_PROP_POS_FRAMES, current_pos)
-            
             chunk_frames = []
             chunk_start_frame = current_pos
             
-            # Calculate how many frames to read in this chunk
-            # This should not exceed chunk_size_frames, and also not exceed end_frame
-            frames_to_read = min(chunk_size_frames, end_frame - current_pos)
+            # 1. Get frames from cache (overlap from previous chunk)
+            frames_from_cache = []
+            if overlap_frames > 0 and len(self._frame_cache) >= overlap_frames:
+                frames_from_cache = [self._frame_cache.popleft() for _ in range(overlap_frames)]
+            chunk_frames.extend(frames_from_cache)
 
-            if frames_to_read <= 0: # No more frames to read in this range
+            # 2. Determine how many new frames are needed for this chunk
+            new_frames_needed = chunk_size_frames - len(chunk_frames)
+            
+            # Ensure we don't read beyond end_frame
+            new_frames_needed = min(new_frames_needed, end_frame - current_pos - len(frames_from_cache))
+
+            if new_frames_needed <= 0 and not chunk_frames: # No more frames to read or yield
                 break
 
-            for _ in range(frames_to_read):
-                ret, frame = self._cap.read()
-                if not ret:
-                    # This means we've reached the actual end of the video file
-                    # or an error occurred. Break the loop.
-                    break 
-                chunk_frames.append(frame)
+            # 3. Get new frames from prefetch buffer
+            new_frames = []
+            if new_frames_needed > 0:
+                # Ensure prefetch buffer has enough frames
+                if len(self._prefetch_buffer) < new_frames_needed:
+                    _fill_prefetch_buffer(len(self._prefetch_buffer) + new_frames_needed) # Fill up to what's needed
+
+                # Take frames from prefetch buffer
+                for _ in range(new_frames_needed):
+                    if self._prefetch_buffer:
+                        new_frames.append(self._prefetch_buffer.popleft())
+                    else:
+                        break # Ran out of prefetched frames
+            chunk_frames.extend(new_frames)
             
             if not chunk_frames: # If no frames were read (e.g., at end of video)
                 break
 
             chunk_end_frame = chunk_start_frame + len(chunk_frames)
+            
             yield VideoChunk(start=chunk_start_frame, end=chunk_end_frame, frames=chunk_frames)
-            
-            # Determine the start of the next chunk
-            if chunk_size_frames == self.frame_count: # If streaming as one chunk, break after first yield
-                break
-            
-            # The next chunk should start after the current chunk, minus the overlap
-            next_chunk_start = chunk_start_frame + frames_to_read - overlap_frames
-            
-            # Ensure next_chunk_start doesn't go before the original start_frame
-            if next_chunk_start < start_frame:
-                next_chunk_start = start_frame
-            
-            current_pos = next_chunk_start
-            
-            # If the last yielded chunk already reached or passed the end_frame, then we are done.
-            # This is the crucial part to prevent re-yielding the same last chunk.
+
+            # 4. Update cache for the next iteration (store overlapping frames from current chunk)
+            self._frame_cache.clear() # Clear previous cache
+            if overlap_frames > 0 and len(chunk_frames) >= overlap_frames:
+                self._frame_cache.extend(chunk_frames[len(chunk_frames) - overlap_frames:])
+
+            # 5. Advance current_pos for the next chunk
+            current_pos = chunk_start_frame + len(chunk_frames) - overlap_frames
+            if current_pos < start_frame:
+                current_pos = start_frame
+
+            # 6. Refill prefetch buffer if it's getting low (maintain prefetch_factor)
+            _fill_prefetch_buffer(chunk_size_frames * 2) # Maintain 2 chunks ahead
+
+            # 7. Break condition if we've reached or passed the end_frame
             if chunk_end_frame >= end_frame:
                 break
 
