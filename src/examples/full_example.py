@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from pathlib import Path
-from video_framework import Video, DesktopPlayer, load_bounding_boxes_from_csv, canny_edge_detector
+from video_player import Video, DesktopPlayer, load_bounding_boxes_from_csv, canny_edge_detector
 
 def main():
     """A full example demonstrating the features of the video framework."""

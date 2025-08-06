@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional, Generator, List, Literal
 from collections import deque
-from video_framework.video import Video
+from video_player.video import Video
 
 
 @dataclass
