@@ -24,17 +24,19 @@ class Streamer:
     """
     A class to efficiently stream video frames in chunks with optional overlap.
     """
-    def __init__(self, video_path: str):
+    def __init__(self, video_path: str, grayscale: bool = False):
         """
         Initializes the Streamer with video path.
 
         Args:
             video_path: Path to the video file.
+            grayscale: Whether to load the video in grayscale.
         """
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"Video file not found: {video_path}")
 
         self.video_path = os.path.abspath(video_path)
+        self.grayscale = grayscale
         self._cap = cv2.VideoCapture(video_path)
         if not self._cap.isOpened():
             raise ValueError(f"Error opening video file: {video_path}")
@@ -50,6 +52,8 @@ class Streamer:
             ret, frame = self._cap.read()
             if not ret:
                 break
+            if self.grayscale:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             frames.append(frame)
         return frames
 
@@ -182,7 +186,7 @@ class Streamer:
         """
         Returns a Video object from the video_framework for the entire video.
         """
-        return Video(self.video_path)
+        return Video(self.video_path, grayscale=self.grayscale)
 
     def _repr_html_(self):
         """

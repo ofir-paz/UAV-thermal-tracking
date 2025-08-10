@@ -38,15 +38,30 @@ class BoundingBox(OverlayItem):
 
 class Point(OverlayItem):
     """A class to represent a single point."""
-    def __init__(self, x: int, y: int, radius: int = 5, color: Tuple[int, int, int] = (0, 255, 0)):
+    def __init__(self, x: int, y: int, color: Tuple[int, int, int] = (0, 255, 0)):
         self.x = x
         self.y = y
-        self.radius = radius
         self.color = color
 
     def draw(self, frame: np.ndarray):
         """Draws the point on a frame."""
-        cv2.circle(frame, (self.x, self.y), self.radius, self.color, -1)
+        cv2.circle(frame, (self.x, self.y), min(frame.shape[:2]) // 200,  self.color, -1)
+
+class Text(OverlayItem):
+    """A class to represent a text overlay."""
+    def __init__(self, text: str, x: int, y: int, font: int = cv2.FONT_HERSHEY_SIMPLEX, font_scale: float = 1, color: Tuple[int, int, int] = (0, 255, 0), thickness: int = 2):
+        self.text = text
+        self.x = x
+        self.y = y
+        self.font = font
+        self.font_scale = font_scale
+        self.color = color
+        self.thickness = thickness
+
+    def draw(self, frame: np.ndarray):
+        """Draws the text on a frame."""
+        cv2.putText(frame, self.text, (self.x, self.y), self.font, self.font_scale, self.color, self.thickness)
+
 
     def __repr__(self) -> str:
         return f"Point(x={self.x}, y={self.y}, radius={self.radius}, color={self.color})"

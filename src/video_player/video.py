@@ -2,19 +2,21 @@ import cv2
 import numpy as np
 import os
 from typing import Callable, List, Optional, Dict, Tuple
-from .overlays import Overlay, OverlayItem
+from .overlays import Overlay, OverlayItem, Text
 
 class Video:
     """A class to represent a video file, with methods for processing and displaying it."""
 
-    def __init__(self, video_path: str):
+    def __init__(self, video_path: str, grayscale: bool = False):
         """
         Initializes the Video object.
 
         Args:
             video_path: The path to the video file.
+            grayscale: Whether to load the video in grayscale.
         """
         self.video_path = video_path
+        self.grayscale = grayscale
         self.cap = cv2.VideoCapture(video_path)
         if not self.cap.isOpened():
             raise ValueError(f"Error opening video file: {video_path}")
@@ -49,12 +51,12 @@ class Video:
     def __next__(self) -> Tuple[np.ndarray, Dict[str, Overlay]]:
         """Returns the next frame of the video and its corresponding active overlays."""
         frame_number = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number + 1)
-        ret, frame = self.cap.read()
-        if not ret:
+        if frame_number >= self.frame_count:
             raise StopIteration
-
+        
         processed_frame, active_frame_overlays = self.get_frame(frame_number)
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number + 1)
+        
         return processed_frame, active_frame_overlays
 
     def add_transform(self, name: str, transform_func: Callable[[np.ndarray], np.ndarray]):
@@ -132,6 +134,9 @@ class Video:
         ret, frame = self.cap.read()
         if not ret:
             raise IndexError("Frame index out of range")
+
+        if self.grayscale:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         processed_frame = frame.copy()
         online_overlay_items = []

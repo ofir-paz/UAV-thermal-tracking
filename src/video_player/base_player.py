@@ -4,6 +4,7 @@ import cv2
 import os
 import numpy as np
 from abc import ABC, abstractmethod
+from collections import deque
 
 from .video import Video
 from .overlays import Overlay
@@ -16,15 +17,18 @@ class BasePlayer(ABC):
         self.output_dir = output_dir
         self.playing = False
         self.current_frame_index = 0
-        os.makedirs(self.output_dir, exist_ok=True)
+        self.real_time_fps = 0
+        self.frame_times = deque(maxlen=60)
 
     def _play(self):
         self.playing = True
 
     def _pause(self):
         self.playing = False
+        self.frame_times.clear()
 
     def _save_frame(self):
+        os.makedirs(self.output_dir, exist_ok=True)
         processed_frame = self.video.get_frame(self.current_frame_index)
         filepath = os.path.join(self.output_dir, f"frame_{self.current_frame_index}.jpg")
         cv2.imwrite(filepath, processed_frame)

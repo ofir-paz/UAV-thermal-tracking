@@ -83,6 +83,10 @@ class JupyterPlayer(BasePlayer):
     def _update_frame(self):
         try:
             processed_frame, _ = self.video.get_frame(self.current_frame_index)
+            
+            # Display real-time FPS
+            cv2.putText(processed_frame, f"FPS: {self.real_time_fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
             # Convert to JPEG for display
             is_success, im_buf_arr = cv2.imencode(".jpg", processed_frame)
             if is_success:
@@ -93,10 +97,15 @@ class JupyterPlayer(BasePlayer):
 
     def _stream_video(self):
         while self.playing and self.current_frame_index < self.video.frame_count - 1:
+            start_time = time.time()
             self.current_frame_index += 1
             self.progress_slider.value = self.current_frame_index
             # _update_frame is called by the observer of progress_slider.value
             time.sleep(1 / self.video.fps)
+            end_time = time.time()
+            self.frame_times.append(end_time - start_time)
+            if len(self.frame_times) > 1:
+                self.real_time_fps = len(self.frame_times) / sum(self.frame_times)
         self.playing = False
 
     def show(self):
