@@ -29,21 +29,12 @@ class DesktopPlayer(BasePlayer):
         self.playing = False
 
     def _update_frame(self):
-        self.video.cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
-        ret, frame = self.video.cap.read()
-        if ret:
-            processed_frame = frame.copy()
-            for transform_name in self.video.active_transforms:
-                if transform_name in self.video.transforms:
-                    processed_frame = self.video.transforms[transform_name](processed_frame)
-            
-            if self.current_frame_index in self.video.overlays:
-                for overlay_name in self.video.active_overlays:
-                    if overlay_name in self.video.overlays[self.current_frame_index]:
-                        processed_frame = self.video.overlays[self.current_frame_index][overlay_name].apply(processed_frame)
-            self.current_frame = processed_frame
+        try:
+            self.current_frame, _ = self.video.get_frame(self.current_frame_index)
             cv2.imshow(self.window_name, self.current_frame)
             cv2.setTrackbarPos(self.trackbar_name, self.window_name, self.current_frame_index)
+        except IndexError:
+            self.playing = False
 
     def _stream_video(self):
         # DesktopPlayer handles streaming in its main loop, no separate thread needed
@@ -67,11 +58,11 @@ class DesktopPlayer(BasePlayer):
         print(f"  - Q: Quit\n")
         print(f"  - Use the trackbar to seek frames\n")
 
-        print(f"\nTransformation Toggles:\n")
-        for name in self.video.transforms.keys():
+        print(f"\nOperation Toggles:\n")
+        for name, op_type, _ in self.video.operations:
             key = self._get_next_key()
-            self.key_map[ord(key)] = ("transform", name)
-            print(f"  - {key}: Toggle Transformation '{name}'\n")
+            self.key_map[ord(key)] = ("operation", name)
+            print(f"  - {key}: Toggle {op_type.replace('_', ' ').title()} '{name}'\n")
 
         print(f"\nOverlay Toggles:\n")
         all_overlay_names = set()
@@ -103,9 +94,9 @@ class DesktopPlayer(BasePlayer):
                 self._save_frame()
             elif key in self.key_map:
                 item_type, name = self.key_map[key]
-                if item_type == "transform":
-                    current_state = name in self.video.active_transforms
-                    self._on_transform_toggle(name, not current_state)
+                if item_type == "operation":
+                    current_state = name in self.video.active_operations
+                    self._on_operation_toggle(name, not current_state)
                 elif item_type == "overlay":
                     current_state = name in self.video.active_overlays
                     self._on_overlay_toggle(name, not current_state)
