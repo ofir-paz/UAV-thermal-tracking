@@ -15,10 +15,10 @@ class VideosConfig:
     Configuration class for video paths.
     """
     INPP = pjoin(DATA_DIR, "inpp")
-    MOVE1 = pjoin(INPP, "move1.mp4")
-    MOVING_CHECK = pjoin(INPP, "moving_check.mp4")
-    MV1 = pjoin(INPP, "mv1.mp4")
-    PERSONS = pjoin(INPP, "persons.mp4")
+    MOVE1 = pjoin(DATA_DIR, "move1.mp4")
+    MOVING_CHECK = pjoin(DATA_DIR, "moving_check.mp4")
+    MV1 = pjoin(DATA_DIR, "mv1.mp4")
+    PERSONS = pjoin(DATA_DIR, "persons.mp4")
     
     VIDEOS = OrderedDict(
         inpp=INPP,

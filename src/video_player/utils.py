@@ -35,8 +35,8 @@ def load_bounding_boxes_from_csv(filepath: str, overlay_name: str = "default_ove
                 overlays_by_frame[frame_number] = {}
             
             if overlay_name not in overlays_by_frame[frame_number]:
-                overlays_by_frame[frame_number][overlay_name] = Overlay(name=overlay_name, bounding_boxes=[])
-            
-            overlays_by_frame[frame_number][overlay_name].bounding_boxes.append(bbox)
-            
+                overlays_by_frame[frame_number][overlay_name] = Overlay(name=overlay_name, overlay_items=[])
+
+            overlays_by_frame[frame_number][overlay_name].overlay_items.append(bbox)
+
     return overlays_by_frame
