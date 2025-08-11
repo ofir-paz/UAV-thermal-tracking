@@ -51,12 +51,12 @@ class Video:
 
     def __next__(self) -> Tuple[np.ndarray, Dict[str, Overlay]]:
         """Returns the next frame of the video and its corresponding active overlays."""
-        frame_number = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
-        if frame_number >= self.frame_count:
+        ret, frame = self.cap.read()
+        if not ret:
             raise StopIteration
         
-        processed_frame, active_frame_overlays = self.get_frame(frame_number)
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number + 1)
+        frame_number = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1 # get(CAP_PROP_POS_FRAMES) returns the index of the next frame to be decoded.
+        processed_frame, active_frame_overlays = self._process_frame(frame, frame_number)
         
         return processed_frame, active_frame_overlays
 
@@ -127,19 +127,14 @@ class Video:
         elif not active and name in self.active_overlays:
             self.active_overlays.remove(name)
 
-    def get_frame(self, frame_index: int) -> Tuple[np.ndarray, Dict[str, Overlay]]:
+    def _process_frame(self, frame: np.ndarray, frame_index: int) -> Tuple[np.ndarray, Dict[str, Overlay]]:
         """
-        Gets a specific frame, applies transformations and overlays.
+        Applies transformations and overlays to a given frame.
         """
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-        ret, frame = self.cap.read()
-        if not ret:
-            raise IndexError("Frame index out of range")
-
-        if self.grayscale:
+        if self.grayscale and len(frame.shape) == 3: # Only convert if it's a color frame
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        processed_frame = frame.copy()
+        processed_frame = frame
         online_overlay_items = []
 
         for name, op_type, func in self.operations:
@@ -162,11 +157,21 @@ class Video:
         if online_overlay_items:
             active_frame_overlays['online_overlays'] = Overlay(name='online_overlays', overlay_items=online_overlay_items)
 
-        output_frame = processed_frame.copy()
         for overlay in active_frame_overlays.values():
-            output_frame = overlay.apply(output_frame)
+            processed_frame = overlay.apply(processed_frame)
 
-        return output_frame, active_frame_overlays
+        return processed_frame, active_frame_overlays
+
+    def get_frame(self, frame_index: int) -> Tuple[np.ndarray, Dict[str, Overlay]]:
+        """
+        Gets a specific frame by seeking, applies transformations and overlays.
+        This method is for random access and should be used sparingly for performance.
+        """
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        ret, frame = self.cap.read()
+        if not ret:
+            raise IndexError("Frame index out of range")
+        return self._process_frame(frame, frame_index)
 
     def save_frames_where(self, predicate: Optional[Callable[[np.ndarray], bool]] = None, output_dir: str = "output"):
         """
@@ -176,13 +181,11 @@ class Video:
         predicate = predicate or (lambda x: True)  # Default to always true if no predicate is provided
         os.makedirs(output_dir, exist_ok=True)
 
-        for frame_idx in tqdm(range(self.frame_count), desc="Processing and saving frames"):
-            # get_frame retrieves the frame, applies transformations and active online overlays
-            processed_frame, _ = self.get_frame(frame_idx)
+        # Reset video to the beginning for sequential reading
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
+        for frame_idx, (processed_frame, _) in enumerate(tqdm(self, desc="Processing and saving frames", total=self.frame_count)):
             if predicate(processed_frame):
-            # Note: The processed_frame already has online overlays applied.
-            # Offline overlays for this frame are also applied by get_frame.
                 filepath = os.path.join(output_dir, f"frame_{frame_idx}.jpg")
                 cv2.imwrite(filepath, processed_frame)
 
@@ -204,14 +207,21 @@ class Video:
 
         fourcc = cv2.VideoWriter.fourcc(*codec)
 
+        # Reset video to the beginning for sequential reading
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
         # Get the first frame to determine the size
-        processed_frame, _ = self.get_frame(0)
+        try:
+            processed_frame, _ = next(self)
+        except StopIteration:
+            print("Video has no frames.")
+            return
+
         width, height = processed_frame.shape[1], processed_frame.shape[0]
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         out.write(processed_frame)  # Write the first frame
         
-        for frame_idx in tqdm(range(1, self.frame_count), desc="Saving video"):
-            processed_frame, _ = self.get_frame(frame_idx)
+        for processed_frame, _ in tqdm(self, desc="Saving video", total=self.frame_count - 1):
             out.write(processed_frame)
 
         out.release()
