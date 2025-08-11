@@ -47,24 +47,37 @@ class Point(OverlayItem):
         """Draws the point on a frame."""
         cv2.circle(frame, (self.x, self.y), min(frame.shape[:2]) // 200,  self.color, -1)
 
-class Text(OverlayItem):
-    """A class to represent a text overlay."""
-    def __init__(self, text: str, x: int, y: int, font: int = cv2.FONT_HERSHEY_SIMPLEX, font_scale: float = 1, color: Tuple[int, int, int] = (0, 255, 0), thickness: int = 2):
-        self.text = text
-        self.x = x
-        self.y = y
-        self.font = font
-        self.font_scale = font_scale
+    def __repr__(self) -> str:
+        return f"Point(x={self.x}, y={self.y}, color={self.color})"
+
+
+class Line(OverlayItem):
+    """
+    A polyline defined by an arbitrary-length list of (x, y) points.
+    Drawn open (not closed).
+    """
+    def __init__(
+        self,
+        points: List[Tuple[int, int]],
+        color: Tuple[int, int, int] = (0, 255, 0),
+        thickness: int = 2,
+    ):
+        assert len(points) >= 2, "Line needs at least two points"
+        self.points = points
         self.color = color
         self.thickness = thickness
+    
+    def extend(self, point: Tuple[int, int]):
+        """Adds a point to the line."""
+        self.points.append(point)
 
     def draw(self, frame: np.ndarray):
-        """Draws the text on a frame."""
-        cv2.putText(frame, self.text, (self.x, self.y), self.font, self.font_scale, self.color, self.thickness)
-
+        pts = np.array(self.points, dtype=np.int32).reshape(-1, 1, 2)
+        cv2.polylines(frame, [pts], isClosed=False, color=self.color, thickness=self.thickness)
+        cv2.circle(frame, self.points[-1], min(frame.shape[:2]) // 200, self.color, -1)
 
     def __repr__(self) -> str:
-        return f"Point(x={self.x}, y={self.y}, radius={self.radius}, color={self.color})"
+        return f"Line(start={self.points[0]}, end={self.points[-1]}, num_points={len(self.points)}, color={self.color})"
 
 
 class Overlay:
