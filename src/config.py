@@ -7,6 +7,8 @@ from collections import OrderedDict
 # Paths
 ROOT_DIR = str(Path(__file__).resolve().parent.parent)
 DATA_DIR = pjoin(ROOT_DIR, "data")
+TESTING_DIR = pjoin(ROOT_DIR, "testing")
+OUTPUT_DIR = pjoin(TESTING_DIR, "output")
 
 
 @final
