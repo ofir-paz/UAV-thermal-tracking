@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 import os
 from typing import Callable, List, Optional, Dict, Tuple
-from .overlays import Overlay, OverlayItem, Text
+from .overlays import Overlay, OverlayItem
+from tqdm import tqdm
 
 class Video:
     """A class to represent a video file, with methods for processing and displaying it."""
@@ -167,25 +168,51 @@ class Video:
 
         return output_frame, active_frame_overlays
 
-    def save_frames_where(self, predicate: Callable[[np.ndarray], bool], output_dir: str = "output"):
+    def save_frames_where(self, predicate: Optional[Callable[[np.ndarray], bool]] = None, output_dir: str = "output"):
         """
         Saves frames from the video that satisfy a given predicate.
         The predicate is applied on the transformed frame. Active overlays are applied to the saved image.
         """
+        predicate = predicate or (lambda x: True)  # Default to always true if no predicate is provided
         os.makedirs(output_dir, exist_ok=True)
 
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        frame_idx = 0
-        while self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if not ret:
-                break
-
+        for frame_idx in tqdm(range(self.frame_count), desc="Processing and saving frames"):
+            # get_frame retrieves the frame, applies transformations and active online overlays
             processed_frame, _ = self.get_frame(frame_idx)
 
             if predicate(processed_frame):
+            # Note: The processed_frame already has online overlays applied.
+            # Offline overlays for this frame are also applied by get_frame.
                 filepath = os.path.join(output_dir, f"frame_{frame_idx}.jpg")
                 cv2.imwrite(filepath, processed_frame)
-                print(f"Saved frame {frame_idx} to {filepath}")
-            frame_idx += 1
+
+        # Reset video to the beginning
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    def save_video(self, output_path: str, codec: str = 'mp4v', fps: Optional[float] = None):
+        """
+        Saves the video with applied transformations and overlays to a file.
+        
+        Args:
+            output_path: The path to save the output video.
+            codec: The codec to use for saving the video.
+            fps: Frames per second for the output video. Defaults to the original video's FPS.
+        """
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        if fps is None:
+            fps = self.fps
+
+        fourcc = cv2.VideoWriter.fourcc(*codec)
+
+        # Get the first frame to determine the size
+        processed_frame, _ = self.get_frame(0)
+        width, height = processed_frame.shape[1], processed_frame.shape[0]
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        out.write(processed_frame)  # Write the first frame
+        
+        for frame_idx in tqdm(range(1, self.frame_count), desc="Saving video"):
+            processed_frame, _ = self.get_frame(frame_idx)
+            out.write(processed_frame)
+
+        out.release()
+        print(f"Video saved to {output_path}")
