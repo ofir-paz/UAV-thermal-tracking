@@ -28,19 +28,14 @@ class DesktopPlayer(BasePlayer):
     def _pause(self):
         self.playing = False
 
-    def _update_frame(self):
-        try:
-            self.current_frame, _ = self.video.get_frame(self.current_frame_index)
+    def _update_frame(self, processed_frame: np.ndarray):
+        self.current_frame = processed_frame
             
-            # Display real-time FPS
-            cv2.putText(self.current_frame, f"FPS: {self.real_time_fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        # Display real-time FPS
+        cv2.putText(self.current_frame, f"FPS: {self.real_time_fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-            cv2.imshow(self.window_name, self.current_frame)
-            cv2.setTrackbarPos(self.trackbar_name, self.window_name, self.current_frame_index)
-            cv2.imshow(self.window_name, self.current_frame)
-            cv2.setTrackbarPos(self.trackbar_name, self.window_name, self.current_frame_index)
-        except IndexError:
-            self.playing = False
+        cv2.imshow(self.window_name, self.current_frame)
+        cv2.setTrackbarPos(self.trackbar_name, self.window_name, self.current_frame_index)
 
     def _stream_video(self):
         # DesktopPlayer handles streaming in its main loop, no separate thread needed
@@ -56,7 +51,8 @@ class DesktopPlayer(BasePlayer):
         cv2.createTrackbar(self.trackbar_name, self.window_name, 0, self.video.frame_count - 1, self._on_trackbar_change)
 
         self.video.cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
-        self._update_frame()
+        processed_frame, _ = self.video.get_frame(self.current_frame_index)
+        self._update_frame(processed_frame)
 
         print(f"\nDesktop Player Controls:\n")
         print(f"  - Spacebar: Play/Pause\n")
@@ -80,14 +76,22 @@ class DesktopPlayer(BasePlayer):
             self.key_map[ord(key)] = ("overlay", name)
             print(f"  - {key}: Toggle Overlay '{name}'\n")
 
+        # Reset video to the beginning for sequential reading
+        self.video.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
         while True:
             if self.playing:
                 start_time = time.time()
-                self.current_frame_index += 1
-                if self.current_frame_index >= self.video.frame_count:
-                    self.current_frame_index = self.video.frame_count - 1
+                try:
+                    processed_frame, _ = next(self.video)
+                    self.current_frame_index = int(self.video.cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
+                    self._update_frame(processed_frame)
+                except StopIteration:
                     self.playing = False
-                self._update_frame()
+                    self.current_frame_index = self.video.frame_count - 1
+                    processed_frame, _ = self.video.get_frame(self.current_frame_index) # Get last frame
+                    self._update_frame(processed_frame)
+
                 end_time = time.time()
                 self.frame_times.append(end_time - start_time)
                 if len(self.frame_times) > 1:

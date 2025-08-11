@@ -36,15 +36,18 @@ class BasePlayer(ABC):
 
     def _seek(self, frame_index: int):
         self.current_frame_index = frame_index
-        self._update_frame()
+        processed_frame, _ = self.video.get_frame(self.current_frame_index)
+        self._update_frame(processed_frame)
 
     def _on_operation_toggle(self, name: str, active: bool):
         self.video.set_operation_active(name, active)
-        self._update_frame()
+        processed_frame, _ = self.video.get_frame(self.current_frame_index)
+        self._update_frame(processed_frame)
 
     def _on_overlay_toggle(self, name: str, active: bool):
         self.video.set_overlay_active(name, active)
-        self._update_frame()
+        processed_frame, _ = self.video.get_frame(self.current_frame_index)
+        self._update_frame(processed_frame)
 
     @abstractmethod
     def _update_frame(self):
