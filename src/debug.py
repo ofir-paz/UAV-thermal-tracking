@@ -1,0 +1,47 @@
+from typing import List, Tuple, Optional, Deque, Callable, Dict, Any
+from collections import deque
+import cv2 as cv
+import numpy as np
+from video_streamer import Streamer
+from video_player import JupyterPlayer, DesktopPlayer, Video, Point, Line, np_to_overlay_items, OverlayItem
+from layers import OpticalFlowLambda, StereoRectification, BackgroundSubtraction, get_morphological_op
+from config import VideosConfig, OUTPUT_DIR, pjoin
+
+
+def add_layers(video: Video) -> Video:
+    flow_overlay = OpticalFlowLambda()
+    stereo_rectification = StereoRectification()
+
+    #video.add_transform("Resize", lambda frame: cv.resize(frame, (800, 640)))
+    video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
+    video.add_transform("Stereo Rectification", stereo_rectification.get_stereo_wrapped_frame)
+    video.add_transform("Background Subtraction", BackgroundSubtraction())
+    video.add_transform("Morphological Operation", get_morphological_op(3, 5))
+    video.add_transform("Stereo Rectification Back", stereo_rectification.wrap_back)
+
+    return video
+
+
+def get_video() -> Video:
+    video = Video(VideosConfig.TRAIN_VIDEO, grayscale=True)
+    video = add_layers(video)
+    return video
+
+
+def play() -> None:
+    video = get_video()
+    desktop_player = DesktopPlayer(video, output_dir=pjoin(OUTPUT_DIR, "debug"))
+    desktop_player.show()
+
+
+def save() -> None:
+    video = get_video()
+    video.save_video(output_path=pjoin(OUTPUT_DIR, "debug", "debug_13_08.mp4"),)
+
+
+def main() -> None:
+    play()
+
+
+if __name__ == "__main__":
+    main()
