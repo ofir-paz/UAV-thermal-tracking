@@ -2,6 +2,11 @@ from os.path import join as pjoin
 from pathlib import Path
 from typing import final
 from collections import OrderedDict
+import numpy as np
+
+
+# Set settings
+np.set_printoptions(precision=5, suppress=True, linewidth=120)
 
 
 # Paths
