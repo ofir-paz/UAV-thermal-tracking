@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import os
-from typing import Callable, List, Optional, Dict, Tuple
+from typing import Callable, List, Optional, Dict, Tuple, Any, Union
 from .overlays import Overlay, OverlayItem
 from tqdm import tqdm
 
@@ -32,6 +32,7 @@ class Video:
 
         self.overlays: Dict[int, Dict[str, Overlay]] = {}
         self.active_overlays: List[str] = []
+        self.state: Dict[Any, Any] = {}
 
     def __enter__(self):
         return self
@@ -60,7 +61,7 @@ class Video:
         
         return processed_frame, active_frame_overlays
 
-    def add_transform(self, name: str, transform_func: Callable[[np.ndarray], np.ndarray]):
+    def add_transform(self, name: str, transform_func: Union[Callable[[np.ndarray], np.ndarray], Callable[[np.ndarray, Dict[Any, Any]], np.ndarray]]):
         """
         Adds a transformation function to be applied to each frame.
 
@@ -71,7 +72,7 @@ class Video:
         self.operations.append((name, 'transform', transform_func))
         self.active_operations.append(name)
 
-    def add_online_overlay(self, name: str, overlay_func: Callable[[np.ndarray], List[OverlayItem]]):
+    def add_online_overlay(self, name: str, overlay_func: Union[Callable[[np.ndarray], List[OverlayItem]], Callable[[np.ndarray, Dict[Any, Any]], List[OverlayItem]]]):
         """
         Adds an online overlay to be generated on the fly.
 
@@ -140,9 +141,16 @@ class Video:
         for name, op_type, func in self.operations:
             if name in self.active_operations:
                 if op_type == 'transform':
-                    processed_frame = func(processed_frame)
+                    try:
+                        processed_frame = func(processed_frame, self.state)
+                    except TypeError:
+                        processed_frame = func(processed_frame)  # Fallback for functions that don't accept state
                 elif op_type == 'online_overlay':
-                    online_overlay_items.extend(func(processed_frame))
+                    try:
+                        new_overlay_items = func(processed_frame, self.state)
+                    except TypeError:
+                        new_overlay_items = func(processed_frame)  # Fallback for functions that don't accept state
+                    online_overlay_items.extend(new_overlay_items)
 
         # Ensure the frame is in color before applying overlays
         if len(processed_frame.shape) == 2 or processed_frame.shape[2] == 1:
