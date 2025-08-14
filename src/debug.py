@@ -4,7 +4,7 @@ import cv2 as cv
 import numpy as np
 from video_streamer import Streamer
 from video_player import JupyterPlayer, DesktopPlayer, Video, Point, Line, np_to_overlay_items, OverlayItem
-from layers import OpticalFlowLambda, StereoRectification, BackgroundSubtraction, get_morphological_op
+from layers import OpticalFlowLambda, StereoRectification, BackgroundSubtraction, get_morphological_op, HighPassFilter
 from config import VideosConfig, OUTPUT_DIR, pjoin
 
 
@@ -15,7 +15,8 @@ def add_layers(video: Video) -> Video:
     #video.add_transform("Resize", lambda frame: cv.resize(frame, (800, 640)))
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
     video.add_transform("Stereo Rectification", stereo_rectification.get_stereo_warped_frame)
-    video.add_transform("Background Subtraction", BackgroundSubtraction())
+    video.add_transform("High Pass Filter", HighPassFilter(6))
+    video.add_transform("Background Subtraction", BackgroundSubtraction("KNN"))
     video.add_transform("Morphological Operation", get_morphological_op(3, 5))
     video.add_transform("Stereo Rectification Back", stereo_rectification.warp_back)
 

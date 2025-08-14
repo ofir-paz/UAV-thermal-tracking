@@ -1,9 +1,24 @@
-from typing import Any, Dict, List, Tuple, Optional, Callable
+from typing import Any, Dict, List, Literal, Tuple, Optional, Callable
 from collections import deque
 import cv2 as cv
 import numpy as np
 from video_player import Line, OverlayItem
 
+
+class HighPassFilter:
+    """
+    High-pass filter to remove low-frequency noise from a gray scale image.
+    """
+    def __init__(self, cutoff: float = 3):
+        self.cutoff = cutoff
+
+    def __call__(self, frame: np.ndarray) -> np.ndarray:
+        assert frame.ndim == 2, "Input frame must be grayscale (2D array)."
+        # Apply Gaussian blur to remove low frequencies
+        blurred = cv.GaussianBlur(frame, (0, 0), self.cutoff)
+        # Subtract blurred image from original to get high frequencies
+        high_passed = cv.subtract(frame, blurred)
+        return high_passed
 
 class OpticalFlowLambda:
     """
@@ -244,8 +259,11 @@ class StereoRectification:
 
 
 class BackgroundSubtraction:
-    def __init__(self) -> None:
-        self.bg_subtractor = cv.createBackgroundSubtractorKNN(history=200, dist2Threshold=500, detectShadows=False)
+    def __init__(self, method: Literal["KNN", "MOG"] = "KNN") -> None:
+        if method == "KNN":
+            self.bg_subtractor = cv.createBackgroundSubtractorKNN(history=200, dist2Threshold=500, detectShadows=False)
+        elif method == "MOG":
+            self.bg_subtractor = cv.createBackgroundSubtractorMOG2(history=200, varThreshold=16, detectShadows=False)
 
     def __call__(self, frame: np.ndarray) -> np.ndarray:
         fg_mask = self.bg_subtractor.apply(frame)
