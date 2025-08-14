@@ -148,43 +148,50 @@ class OpticalFlowLambda:
 
 class StereoRectification:
     def __init__(self) -> None:
-        self._last_frame: Optional[np.ndarray] = None
-        self._pts1: np.ndarray
-        self._pts2: np.ndarray
-        self._H: np.ndarray
+        self._first_frame: np.ndarray
+        self._last_frame: np.ndarray
+        self._current_frame: np.ndarray
+
+        self._first_pts: np.ndarray
+        self._last_pts: np.ndarray
+        self._current_pts: np.ndarray
+        
+        self._H: np.ndarray = np.eye(3, dtype=np.float32)  # Homography matrix
 
     def _extract_state_metadata(self, frame: np.ndarray, state: Dict[Any, Any]) -> bool:
         """Extracts and updates state metadata from the current frame."""
-        
-        if self.__dict__.get("_last_frame") is None:  # First call, no previous frame
-            self._last_frame = frame.copy()
-            self._pts1 = state["current_pts"]
+        if self.__dict__.get("_first_frame") is None:  # First call, no previous frame
+            self._first_frame = self._last_frame = self._current_frame = frame.copy()
+            self._first_pts = self._last_pts = self._current_pts = state["current_pts"]
             return False
         
-        self._last_frame = frame.copy()  # Update last frame for next call
-        self._pts1 = self._pts1[state["last_alive"]]
-        self._pts2 = state["current_pts"]
+        
+        self._last_frame = self._current_frame
+        self._last_pts = self._current_pts[state["last_alive"]]
+        self._current_frame = frame
+        self._current_pts = state["current_pts"]
         return True
 
-    def wrap_back(self, frame: np.ndarray) -> np.ndarray:
-        """Wraps the frame back to the original size."""
+    def warp_back(self, frame: np.ndarray) -> np.ndarray:
+        """Warps the frame back to the original size."""
         if self.__dict__.get("_H") is None:
             return frame
 
         h, w = frame.shape[:2]
-        warped_back = cv.warpPerspective(frame, np.linalg.inv(self._H), (w, h))
-        return warped_back
+        warped_to_first = cv.warpPerspective(frame, np.linalg.inv(self._H), (w, h))
+        return warped_to_first
 
-    def get_stereo_wrapped_frame(self, frame: np.ndarray, state: Dict[Any, Any]) -> np.ndarray:    
+    def get_stereo_warped_frame(self, frame: np.ndarray, state: Dict[Any, Any]) -> np.ndarray:    
         is_extracted = self._extract_state_metadata(frame, state)
         if not is_extracted:
             return frame
-
+        
         h, w = frame.shape[:2]
-
-        self._H, _ = cv.findHomography(self._pts2, self._pts1, cv.RANSAC, 3.0)
-        warped2 = cv.warpPerspective(frame, self._H, (w, h))
-        return warped2
+    
+        H_to_last, _ = cv.findHomography(self._current_pts, self._last_pts, cv.RANSAC, 3.0)
+        self._H @= H_to_last
+        warped = cv.warpPerspective(frame, self._H, (w, h))
+        return warped
 
     def get_stereo_rectified_frame(self, frame: np.ndarray, state: Dict[Any, Any]) -> np.ndarray:
         is_extracted = self._extract_state_metadata(frame, state)
@@ -194,10 +201,10 @@ class StereoRectification:
         h, w = frame.shape[:2]
         
         # 1) FUNDAMENTAL (8-point via RANSAC)
-        F, inliers = cv.findFundamentalMat(self._pts1, self._pts2, method=cv.FM_RANSAC,
+        F, inliers = cv.findFundamentalMat(self._last_pts, self._current_pts, method=cv.FM_RANSAC,
                                         ransacReprojThreshold=1.0, confidence=0.999)
         inliers = inliers.ravel().astype(bool)
-        pts1_i, pts2_i = self._pts1[inliers], self._pts2[inliers]
+        pts1_i, pts2_i = self._last_pts[inliers], self._current_pts[inliers]
         assert F is not None and F.shape == (3,3), "F estimation failed."
 
         # 2) RECTIFY UNCALIBRATED (returns H1,H2)
@@ -211,7 +218,7 @@ class StereoRectification:
         # 3) DISPARITY (SGBM works well)
         # numDisparities must be divisible by 16; tune for your baseline/scene.
         minDisp = 0
-        numDisp = 128  # try 64/96/128 depending on scene
+        numDisp = 64  # try 64/96/128 depending on scene
         blk = 5
         sgbm = cv.StereoSGBM.create(minDisparity=minDisp,
                                     numDisparities=numDisp,

@@ -14,10 +14,10 @@ def add_layers(video: Video) -> Video:
 
     #video.add_transform("Resize", lambda frame: cv.resize(frame, (800, 640)))
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
-    video.add_transform("Stereo Rectification", stereo_rectification.get_stereo_wrapped_frame)
+    video.add_transform("Stereo Rectification", stereo_rectification.get_stereo_warped_frame)
     video.add_transform("Background Subtraction", BackgroundSubtraction())
     video.add_transform("Morphological Operation", get_morphological_op(3, 5))
-    video.add_transform("Stereo Rectification Back", stereo_rectification.wrap_back)
+    video.add_transform("Stereo Rectification Back", stereo_rectification.warp_back)
 
     return video
 
@@ -36,7 +36,7 @@ def play() -> None:
 
 def save() -> None:
     video = get_video()
-    video.save_video(output_path=pjoin(OUTPUT_DIR, "debug", "debug_13_08.mp4"),)
+    video.save_video(output_path=pjoin(OUTPUT_DIR, "full_pipeline", "v0.1-no-tracking.mp4"),)
 
 
 def main() -> None:
