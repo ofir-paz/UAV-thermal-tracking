@@ -2,7 +2,21 @@ from typing import Any, Dict, List, Literal, Tuple, Optional, Callable
 from collections import deque
 import cv2 as cv
 import numpy as np
-from video_player import Line, OverlayItem
+from video_player import Line, BoundingBox, OverlayItem 
+
+
+class MedianFilter:
+    """
+    Median filter to remove noise from a gray scale image.
+    """
+    def __init__(self, kernel_size: int = 3):
+        self.kernel_size = kernel_size
+
+    def __call__(self, frame: np.ndarray) -> np.ndarray:
+        assert frame.ndim == 2, "Input frame must be grayscale (2D array)."
+        # Apply median blur to remove noise
+        filtered = cv.medianBlur(frame, self.kernel_size)
+        return filtered
 
 
 class HighPassFilter:
@@ -161,7 +175,7 @@ class OpticalFlowLambda:
         return items
 
 
-class StereoRectification:
+class MotionStabilizer:
     def __init__(self) -> None:
         self._first_frame: np.ndarray
         self._last_frame: np.ndarray
@@ -270,14 +284,33 @@ class BackgroundSubtraction:
         return fg_mask
 
 
-def get_morphological_op(open_size: int = 3, close_size: int = 5) -> Callable[[np.ndarray], np.ndarray]:
+def get_morphological_op(open_size: int = 3, close_size: int = 4) -> Callable[[np.ndarray], np.ndarray]:
     """Returns a morphological operation function with the specified kernel size."""
-    kernel_open = cv.getStructuringElement(cv.MORPH_ELLIPSE, (open_size, open_size))
-    kernel_close = cv.getStructuringElement(cv.MORPH_ELLIPSE, (close_size, close_size))
+    kernel_open = cv.getStructuringElement(cv.MORPH_ELLIPSE, (round(open_size * 0.67), round(open_size * 1.33)))
+    kernel_close = cv.getStructuringElement(cv.MORPH_ELLIPSE, (round(close_size * 0.67), round(close_size * 1.33)))
+    last_dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (close_size + 1, close_size + 1))
 
     def morphological_op(frame: np.ndarray) -> np.ndarray:
         frame = cv.morphologyEx(frame, cv.MORPH_OPEN, kernel_open)
         frame = cv.morphologyEx(frame, cv.MORPH_CLOSE, kernel_close)
+        frame = cv.morphologyEx(frame, cv.MORPH_ERODE, kernel_open)
+        frame = cv.morphologyEx(frame, cv.MORPH_DILATE, last_dilate_kernel)
         return frame
     
     return morphological_op
+
+
+class CropImage:
+    """
+    Crops the image to a specified percentage of its original size.
+    """
+    def __init__(self, crop_percentage: float = 0.1):
+        self.crop_percentage = crop_percentage
+
+    def __call__(self, frame: np.ndarray) -> np.ndarray:
+        h, w = frame.shape[:2]
+        crop_h = int(h * self.crop_percentage)
+        crop_w = int(w * self.crop_percentage)
+        return frame[crop_h:h - crop_h, crop_w:w - crop_w]
+
+
