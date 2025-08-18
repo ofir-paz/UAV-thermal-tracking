@@ -15,13 +15,14 @@ from layers import (
     CropImage,
     DetectClasses
 )
+from sort import Sort
 from config import VideosConfig, OUTPUT_DIR, pjoin
 
 
 def add_layers(video: Video) -> Video:
     flow_overlay = OpticalFlowLambda()
     motion_stabilizer = MotionStabilizer()
-    detect_classes = DetectClasses()
+    detect_classes = DetectClasses(min_hits=30, max_age=3)
 
     video.add_transform("Crop Image", CropImage(0.05))
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
@@ -51,11 +52,11 @@ def play() -> None:
 
 def save() -> None:
     video = get_video()
-    video.save_video(output_path=pjoin(OUTPUT_DIR, "full_pipeline", "v2-no-tracking-final.mp4"),)
+    video.save_video(output_path=pjoin(OUTPUT_DIR, "debug", "v2-no-tracking-final.mp4"),)
 
 
 def main() -> None:
-    save()
+    play()
 
 
 if __name__ == "__main__":
