@@ -4,21 +4,32 @@ import cv2 as cv
 import numpy as np
 from video_streamer import Streamer
 from video_player import JupyterPlayer, DesktopPlayer, Video, Point, Line, np_to_overlay_items, OverlayItem
-from layers import OpticalFlowLambda, StereoRectification, BackgroundSubtraction, get_morphological_op, HighPassFilter
+from layers import (
+    OpticalFlowLambda, 
+    MotionStabilizer, 
+    BackgroundSubtraction, 
+    get_morphological_op, 
+    HighPassFilter, 
+    BandPassFilter, 
+    MedianFilter, 
+    CropImage,
+)
 from config import VideosConfig, OUTPUT_DIR, pjoin
 
 
 def add_layers(video: Video) -> Video:
     flow_overlay = OpticalFlowLambda()
-    stereo_rectification = StereoRectification()
+    motion_stabilizer = MotionStabilizer()
 
-    #video.add_transform("Resize", lambda frame: cv.resize(frame, (800, 640)))
+    video.add_transform("Crop Image", CropImage(0.05))
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
-    video.add_transform("Stereo Rectification", stereo_rectification.get_stereo_warped_frame)
-    video.add_transform("High Pass Filter", HighPassFilter(6))
+    video.add_transform("Motion Stabilize", motion_stabilizer.get_stereo_warped_frame)
+    video.add_transform("Median Blur", MedianFilter(3))
+    video.add_transform("Band Pass Filter", BandPassFilter(0.3, 6))
     video.add_transform("Background Subtraction", BackgroundSubtraction("KNN"))
-    video.add_transform("Morphological Operation", get_morphological_op(3, 5))
-    video.add_transform("Stereo Rectification Back", stereo_rectification.warp_back)
+    video.add_transform("Morphological Operation", get_morphological_op(3, 4))
+    #video.add_transform("Motion Stabilize Back", motion_stabilizer.warp_back)
+    video.add_transform("Crop Image", CropImage(0.05))
 
     return video
 
@@ -37,11 +48,11 @@ def play() -> None:
 
 def save() -> None:
     video = get_video()
-    video.save_video(output_path=pjoin(OUTPUT_DIR, "full_pipeline", "v0.1-no-tracking.mp4"),)
+    video.save_video(output_path=pjoin(OUTPUT_DIR, "full_pipeline", "v2-no-tracking-final.mp4"),)
 
 
 def main() -> None:
-    play()
+    save()
 
 
 if __name__ == "__main__":
