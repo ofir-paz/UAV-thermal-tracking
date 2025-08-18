@@ -20,6 +20,7 @@ from config import VideosConfig, OUTPUT_DIR, pjoin
 def add_layers(video: Video) -> Video:
     flow_overlay = OpticalFlowLambda()
     motion_stabilizer = MotionStabilizer()
+    detect_classes = DetectClasses()
 
     video.add_transform("Crop Image", CropImage(0.05))
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
@@ -30,6 +31,7 @@ def add_layers(video: Video) -> Video:
     video.add_transform("Morphological Operation", get_morphological_op(3, 4))
     #video.add_transform("Motion Stabilize Back", motion_stabilizer.warp_back)
     video.add_transform("Crop Image", CropImage(0.05))
+    video.add_online_overlay(name="Detect Classes", overlay_func=detect_classes)
 
     return video
 

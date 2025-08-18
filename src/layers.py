@@ -2,7 +2,8 @@ from typing import Any, Dict, List, Literal, Tuple, Optional, Callable
 from collections import deque
 import cv2 as cv
 import numpy as np
-from video_player import Line, BoundingBox, OverlayItem 
+from config import Classes
+from video_player import Line, BoundingBox, OverlayItem, Color
 
 
 class MedianFilter:
@@ -33,6 +34,23 @@ class HighPassFilter:
         # Subtract blurred image from original to get high frequencies
         high_passed = cv.subtract(frame, blurred)
         return high_passed
+
+
+class BandPassFilter:
+    """
+    Band-pass filter to remove both low and high-frequency noise from a gray scale image.
+    """
+    def __init__(self, low_cutoff: float = 0.2, high_cutoff: float = 3):
+        self.low_cutoff = low_cutoff
+        self.high_cutoff = high_cutoff
+
+    def __call__(self, frame: np.ndarray) -> np.ndarray:
+        assert frame.ndim == 2, "Input frame must be grayscale (2D array)."
+        
+        low_passed = cv.GaussianBlur(frame, (0, 0), self.low_cutoff)
+        high_passed = HighPassFilter(self.high_cutoff)(low_passed)
+        return high_passed
+
 
 class OpticalFlowLambda:
     """
@@ -314,3 +332,45 @@ class CropImage:
         return frame[crop_h:h - crop_h, crop_w:w - crop_w]
 
 
+class DetectClasses:
+    def __init__(self, dilate_size: int = 8, max_size: int = 50, max_ratio: float = 2.0):
+        self.dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (dilate_size, dilate_size))
+        self.max_size = max_size
+        self.max_ratio = max_ratio
+
+    def __call__(self, frame: np.ndarray) -> List[OverlayItem]:
+        assert frame.ndim == 2, "Input frame must be grayscale (2D array)."
+        frame = cv.morphologyEx(frame, cv.MORPH_DILATE, self.dilate_kernel)
+        contours, _ = cv.findContours(frame, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        # Fill bounding boxes for each contour
+        bounding_boxes: List[OverlayItem] = []
+
+        for contour in contours:
+            x, y, w, h = cv.boundingRect(contour)
+            klass = self._classify_contour(x, y, w, h)
+            if klass == Classes.BACKGROUND:
+                continue
+            bounding_boxes.append(BoundingBox(x, y, w, h, label=klass.TEXT, color=Color(klass.COLOR)))
+            x, y, w, h = cv.boundingRect(contour)
+
+        return bounding_boxes
+
+    def _classify_contour(self, x: int, y: int, w: int, h: int) -> Classes:
+        """Classifies the contour based on its position and size."""
+        if self._filter_contour(x, y, w, h):
+            return Classes.BACKGROUND
+        elif w * h > 20 * 20:
+            return Classes.VEHICLE
+        elif h / w > 0.95:
+            return Classes.PERSON
+        else:
+            return Classes.BACKGROUND
+
+    def _filter_contour(self, x: int, y: int, w: int, h: int) -> bool:
+        """Filters out contours that are too small or too large."""
+        return (
+            w > self.max_size or 
+            h > self.max_size or
+            w / h > self.max_ratio or
+            h / w > self.max_ratio
+        )
