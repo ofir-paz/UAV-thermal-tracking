@@ -2,6 +2,7 @@ from os.path import join as pjoin
 from pathlib import Path
 from typing import final
 from collections import OrderedDict
+from enum import IntEnum
 import numpy as np
 
 
@@ -44,3 +45,19 @@ class VideosConfig:
         mv1=MV1,
         persons=PERSONS
     )
+
+
+class Classes(IntEnum):
+    COLOR: str
+    TEXT: str
+    
+    def __new__(cls, value, color, text):
+        obj = int.__new__(cls, value)
+        obj._value_ = value
+        obj.COLOR = color
+        obj.TEXT = text
+        return obj
+
+    BACKGROUND = 0, "#000000", "Background"
+    PERSON     = 1, "#ff0000", "Person"
+    VEHICLE    = 2, "#00ff00", "Vehicle"
