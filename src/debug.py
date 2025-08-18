@@ -13,6 +13,7 @@ from layers import (
     BandPassFilter, 
     MedianFilter, 
     CropImage,
+    DetectClasses
 )
 from config import VideosConfig, OUTPUT_DIR, pjoin
 
