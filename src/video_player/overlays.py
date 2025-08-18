@@ -1,13 +1,53 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional, Type
+from typing import List, Tuple, Optional, Type, overload, Union
 import numpy as np
 import cv2
+
+
+class Color:
+    """A simple class to hold RGB color values."""
+
+    @overload
+    def __init__(self, color: Tuple[int, int, int]) -> None: ...
+    @overload
+    def __init__(self, r: int, g: int, b: int) -> None: ...
+    @overload
+    def __init__(self, color: str) -> None: ...
+
+    def __init__(
+        self,
+        *args: Union[int, str, Tuple[int, int, int]],
+    ) -> None:
+        if len(args) == 1:
+            arg = args[0]
+            if isinstance(arg, tuple):
+                self.r, self.g, self.b = arg
+            elif isinstance(arg, str):
+                if arg.startswith('#'):
+                    hex_str = arg.lstrip('#')
+                    self.r = int(hex_str[0:2], 16)
+                    self.g = int(hex_str[2:4], 16)
+                    self.b = int(hex_str[4:6], 16)
+                else:
+                    raise ValueError(
+                        "Color string must start with '#' or provide an RGB tuple."
+                    )
+            else:
+                raise TypeError("Single argument must be tuple[int, int, int] or str.")
+        elif len(args) == 3 and all(isinstance(a, int) for a in args):
+            self.r, self.g, self.b = args  # type: ignore[assignment]
+        else:
+            raise TypeError("Invalid arguments for Color constructor.")
+
+    def as_tuple(self) -> Tuple[int, int, int]:
+        """Returns the color as a tuple."""
+        return (self.r, self.g, self.b)
 
 
 class OverlayItem(ABC):
     """Abstract base class for overlay items."""
     @abstractmethod
-    def __init__(self, color: Tuple[int, int, int] = (0, 255, 0), *args, **kwargs):
+    def __init__(self, color: Color = Color(0, 255, 0), *args, **kwargs):
         self.color = color
 
     @abstractmethod
@@ -18,19 +58,19 @@ class OverlayItem(ABC):
 
 class BoundingBox(OverlayItem):
     """A class to represent a single bounding box."""
-    def __init__(self, x: int, y: int, width: int, height: int, label: Optional[str] = None, color: Tuple[int, int, int] = (0, 255, 0)):
+    def __init__(self, x: int, y: int, width: int, height: int, label: Optional[str] = None, color: Color = Color(0, 255, 0)):
         self.x = x
         self.y = y
         self.width = width
         self.height = height
         self.label = label
-        self.color = color
+        self.color = color.as_tuple() if isinstance(color, Color) else color
 
     def draw(self, frame: np.ndarray):
         """Draws the bounding box on a frame."""
         cv2.rectangle(frame, (self.x, self.y), (self.x + self.width, self.y + self.height), self.color, 2)
         if self.label:
-            cv2.putText(frame, self.label, (self.x, self.y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, self.color, 2)
+            cv2.putText(frame, self.label, (self.x, self.y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.color, 2)
 
     def __repr__(self) -> str:
         return f"BoundingBox(x={self.x}, y={self.y}, width={self.width}, height={self.height}, label={self.label}, color={self.color})"
@@ -38,10 +78,10 @@ class BoundingBox(OverlayItem):
 
 class Point(OverlayItem):
     """A class to represent a single point."""
-    def __init__(self, x: int, y: int, color: Tuple[int, int, int] = (0, 255, 0)):
+    def __init__(self, x: int, y: int, color: Color = Color(0, 255, 0)):
         self.x = x
         self.y = y
-        self.color = color
+        self.color = color.as_tuple() if isinstance(color, Color) else color
 
     def draw(self, frame: np.ndarray):
         """Draws the point on a frame."""
@@ -59,12 +99,12 @@ class Line(OverlayItem):
     def __init__(
         self,
         points: List[Tuple[int, int]],
-        color: Tuple[int, int, int] = (0, 255, 0),
+        color: Color = Color(0, 255, 0),
         thickness: int = 2,
     ):
         assert len(points) >= 2, "Line needs at least two points"
         self.points = points
-        self.color = color
+        self.color = color.as_tuple() if isinstance(color, Color) else color
         self.thickness = thickness
     
     def extend(self, point: Tuple[int, int]):
@@ -96,7 +136,7 @@ class Overlay:
 def np_to_overlay_items(
     np_array: np.ndarray, 
     overlay_item: Type[OverlayItem], 
-    color: Tuple[int, int, int] = (0, 255, 0)
+    color: Color = Color(0, 255, 0)
 ) -> List[OverlayItem]:
     """
     Converts a NumPy array of overlay item parameters to a list of OverlayItem objects.
