@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional, Type, overload, Union
+from typing import List, Tuple, Optional, Type, overload, Union, Any
 import numpy as np
 import cv2
 
@@ -63,7 +63,7 @@ class BoundingBox(OverlayItem):
         self.y = y
         self.width = width
         self.height = height
-        self.label = label
+        self.label = str(label)
         self.color = color.as_tuple() if isinstance(color, Color) else color
 
     def draw(self, frame: np.ndarray):
@@ -148,9 +148,15 @@ def np_to_overlay_items(
     Returns:
         A list of OverlayItem objects representing the overlay items.
     """
+    def try_to_int(value: Any):
+        """Attempts to convert a value to an integer, returning it unchanged if it fails."""
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return value
     return [
         overlay_item(
-            *map(int, row),
+            *map(try_to_int, row),
             color=color
-        ) for row in np_array.squeeze()
+        ) for row in (np_array.squeeze() if np_array.ndim > 2 else np_array)
     ]

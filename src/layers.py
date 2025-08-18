@@ -3,7 +3,8 @@ from collections import deque
 import cv2 as cv
 import numpy as np
 from config import Classes
-from video_player import Line, BoundingBox, OverlayItem, Color
+from video_player import Line, BoundingBox, OverlayItem, Color, np_to_overlay_items
+from sort import Sort
 
 
 class MedianFilter:
@@ -333,7 +334,16 @@ class CropImage:
 
 
 class DetectClasses:
-    def __init__(self, dilate_size: int = 8, max_size: int = 50, max_ratio: float = 2.0):
+    def __init__(
+        self, 
+        dilate_size: int = 8, 
+        max_size: int = 50, 
+        max_ratio: float = 2.0,
+        max_age: int = 5,
+        min_hits: int = 20,
+        iou_threshold: float = 0.3
+    ) -> None:
+        self.sort_tracker = Sort(max_age=max_age, min_hits=min_hits, iou_threshold=iou_threshold)
         self.dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (dilate_size, dilate_size))
         self.max_size = max_size
         self.max_ratio = max_ratio
@@ -344,6 +354,7 @@ class DetectClasses:
         contours, _ = cv.findContours(frame, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         # Fill bounding boxes for each contour
         bounding_boxes: List[OverlayItem] = []
+        dets = np.empty((0, 5), dtype=np.int32)  # (x1, y1, x2, y2, score)
 
         for contour in contours:
             x, y, w, h = cv.boundingRect(contour)
@@ -351,9 +362,13 @@ class DetectClasses:
             if klass == Classes.BACKGROUND:
                 continue
             bounding_boxes.append(BoundingBox(x, y, w, h, label=klass.TEXT, color=Color(klass.COLOR)))
-            x, y, w, h = cv.boundingRect(contour)
+            dets = np.append(dets, [[x, y, x + w, y + h, 0]], axis=0)  # Score is unused in sort
 
-        return bounding_boxes
+        tracked_objects = self.sort_tracker.update(dets)
+        if tracked_objects.shape[0] > 0:
+            tracked_objects[:, 2] -= tracked_objects[:, 0]
+            tracked_objects[:, 3] -= tracked_objects[:, 1]
+        return np_to_overlay_items(tracked_objects, BoundingBox)
 
     def _classify_contour(self, x: int, y: int, w: int, h: int) -> Classes:
         """Classifies the contour based on its position and size."""
