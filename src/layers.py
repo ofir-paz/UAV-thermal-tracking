@@ -75,6 +75,7 @@ class OpticalFlowLambda:
         track_len: int = 60,              # max number of saved points per track
         avoid_reseed_radius: int = 10,     # radius (px) around live points to avoid when reseeding
         color_seed: int = 42,
+        return_overlay_items: bool = True
     ):
         self.feature_params = feature_params or dict(
             maxCorners=max_corners,
@@ -91,6 +92,7 @@ class OpticalFlowLambda:
         self.reseed_min_points = reseed_min_points
         self.track_len = int(track_len) if track_len and track_len > 1 else 2
         self.avoid_reseed_radius = int(avoid_reseed_radius)
+        self.return_overlay_items = return_overlay_items
 
         # State
         self._prev_gray: Optional[np.ndarray] = None
@@ -135,7 +137,7 @@ class OpticalFlowLambda:
             self._seed_points(gray_frame)
 
         # Convert all tracks with length>=2 to Line polylines
-        items = self._tracks_to_lines()
+        items = self._tracks_to_lines() if self.return_overlay_items else []
 
         # Add found tracked points to state
         state["last_alive"] = alive_mask

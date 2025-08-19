@@ -20,7 +20,7 @@ from config import VideosConfig, OUTPUT_DIR, pjoin
 
 
 def add_layers(video: Video) -> Video:
-    flow_overlay = OpticalFlowLambda()
+    flow_overlay = OpticalFlowLambda(return_overlay_items=False)
     motion_stabilizer = MotionStabilizer(crop_percentage=0.05)
     detect_classes = DetectClasses(min_hits=30, max_age=20)
 
@@ -60,7 +60,8 @@ def play_remapped() -> None:
 
 def save() -> None:
     video = get_video()
-    video.save_video(output_path=pjoin(OUTPUT_DIR, "debug", "v2-no-tracking-final.mp4"),)
+    video.set_play_mode('original_with_remapped')
+    video.save_video(output_path=pjoin(OUTPUT_DIR, "debug", "v2-tracking.mp4"),)
 
 
 def main() -> None:
