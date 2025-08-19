@@ -21,17 +21,16 @@ from config import VideosConfig, OUTPUT_DIR, pjoin
 
 def add_layers(video: Video) -> Video:
     flow_overlay = OpticalFlowLambda()
-    motion_stabilizer = MotionStabilizer()
+    motion_stabilizer = MotionStabilizer(crop_percentage=0.05)
     detect_classes = DetectClasses(min_hits=30, max_age=20)
 
-    video.add_transform("Crop Image", CropImage(0.05))
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
     video.add_transform("Motion Stabilize", motion_stabilizer.get_stereo_warped_frame)
     video.add_transform("Median Blur", MedianFilter(3))
     video.add_transform("Band Pass Filter", BandPassFilter(0.3, 6))
     video.add_transform("Background Subtraction", BackgroundSubtraction("KNN"))
+    video.add_transform("Crop Image", motion_stabilizer.post_warp_crop)
     video.add_transform("Morphological Operation", get_morphological_op(3, 4))
-    video.add_transform("Crop Image", CropImage(0.05))
     video.add_online_overlay(name="Detect Classes", overlay_func=detect_classes)
     #video.add_transform("Motion Stabilize Back", motion_stabilizer.warp_back)
 
@@ -44,16 +43,19 @@ def get_video() -> Video:
     return video
 
 
+def play_desktop_player(video: Video) -> None:
+    DesktopPlayer(video, output_dir=pjoin(OUTPUT_DIR, "debug")).show()
+
+
 def play() -> None:
     video = get_video()
-    desktop_player = DesktopPlayer(video, output_dir=pjoin(OUTPUT_DIR, "debug"))
-    desktop_player.show()
+    play_desktop_player(video)
+
 
 def play_remapped() -> None:
     video = get_video()
     video.set_play_mode('original_with_remapped')
-    desktop_player = DesktopPlayer(video, output_dir=pjoin(OUTPUT_DIR, "debug"))
-    desktop_player.show()
+    play_desktop_player(video)
 
 
 def save() -> None:

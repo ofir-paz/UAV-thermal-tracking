@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Tuple, Optional, Callable
+from typing import Any, Dict, List, Literal, Tuple, Optional, Callable, Union
 from collections import deque
 import cv2 as cv
 import numpy as np
@@ -195,7 +195,7 @@ class OpticalFlowLambda:
 
 
 class MotionStabilizer:
-    def __init__(self) -> None:
+    def __init__(self, crop_percentage: Optional[float] = 0.1) -> None:
         self._first_frame: np.ndarray
         self._last_frame: np.ndarray
         self._current_frame: np.ndarray
@@ -205,6 +205,7 @@ class MotionStabilizer:
         self._current_pts: np.ndarray
         
         self._H: np.ndarray = np.eye(3, dtype=np.float32)  # Homography matrix
+        self.crop_percentage = crop_percentage
 
     def _extract_state_metadata(self, frame: np.ndarray, state: Dict[Any, Any]) -> bool:
         """Extracts and updates state metadata from the current frame."""
@@ -248,7 +249,20 @@ class MotionStabilizer:
             return warped_coords[0]
 
         return warped, warp_func
+    
+    def post_warp_crop(self, frame: np.ndarray) -> np.ndarray:
+        """Crops the warped frame to noisy borders."""
+        if not self.crop_percentage:
+            return frame
 
+        h, w = frame.shape[:2]
+        mask = np.zeros_like(frame, dtype=np.uint8)
+        crop_h = int(h * self.crop_percentage)
+        crop_w = int(w * self.crop_percentage)
+        mask[crop_h:h - crop_h, crop_w:w - crop_w] = 255
+        mask = cv.warpPerspective(mask, self._H, (w, h))
+        cropped_frame = cv.bitwise_and(frame, mask)
+        return cropped_frame
 
 class BackgroundSubtraction:
     def __init__(self, method: Literal["KNN", "MOG"] = "KNN") -> None:
@@ -282,22 +296,30 @@ class CropImage:
     """
     Crops the image to a specified percentage of its original size.
     """
-    def __init__(self, crop_percentage: float = 0.1):
+    def __init__(self, crop_percentage: float = 0.1, crop_with_mask: bool = False):
         self.crop_percentage = crop_percentage
         self.crop_h = 0
         self.crop_w = 0
+        self.crop_with_mask = crop_with_mask
 
-    def __call__(self, frame: np.ndarray) -> Tuple[np.ndarray, Callable[[np.ndarray], np.ndarray]]:
+    def __call__(self, frame: np.ndarray) -> Union[np.ndarray, Tuple[np.ndarray, Callable[[np.ndarray], np.ndarray]]]:
         h, w = frame.shape[:2]
         self.crop_h = int(h * self.crop_percentage)
         self.crop_w = int(w * self.crop_percentage)
         
-        cropped_frame = frame[self.crop_h:h - self.crop_h, self.crop_w:w - self.crop_w]
-        
-        def warp_func(coords: np.ndarray) -> np.ndarray:
-            return coords + np.array([self.crop_w, self.crop_h])
+        if self.crop_with_mask:
+            mask = np.zeros_like(frame, dtype=np.uint8)
+            mask[self.crop_h:h - self.crop_h, self.crop_w:w - self.crop_w] = 255
+            frame = cv.bitwise_and(frame, mask)
+            return frame
+
+        else:
+            cropped_frame = frame[self.crop_h:h - self.crop_h, self.crop_w:w - self.crop_w]
             
-        return cropped_frame, warp_func
+            def warp_func(coords: np.ndarray) -> np.ndarray:
+                return coords + np.array([self.crop_w, self.crop_h])
+            
+            return cropped_frame, warp_func
 
 
 class DetectClasses:
