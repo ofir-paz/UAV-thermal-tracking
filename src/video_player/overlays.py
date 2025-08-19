@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional, Type, overload, Union, Any
+from typing import List, Tuple, Optional, Type, overload, Union, Any, Callable
 import numpy as np
 import cv2
 
@@ -55,6 +55,11 @@ class OverlayItem(ABC):
         """Draws the overlay item on the given frame."""
         pass
 
+    @abstractmethod
+    def warp(self, warp_funcs: List[Callable[[np.ndarray], np.ndarray]]):
+        """Warps the coordinates of the overlay item using a list of functions."""
+        pass
+
 
 class BoundingBox(OverlayItem):
     """A class to represent a single bounding box."""
@@ -72,6 +77,18 @@ class BoundingBox(OverlayItem):
         if self.label:
             cv2.putText(frame, self.label, (self.x, self.y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.color, 2)
 
+    def warp(self, warp_funcs: List[Callable[[np.ndarray], np.ndarray]]):
+        """Warps the bounding box coordinates."""
+        # Bounding box is defined by top-left (x, y) and bottom-right (x+w, y+h)
+        coords = np.array([[self.x, self.y], [self.x + self.width, self.y + self.height]], dtype=np.float32)
+        for func in warp_funcs:
+            coords = func(coords)
+        
+        # After warping, recalculate x, y, width, and height
+        self.x, self.y = int(coords[0][0]), int(coords[0][1])
+        self.width = int(coords[1][0] - coords[0][0])
+        self.height = int(coords[1][1] - coords[0][1])
+
     def __repr__(self) -> str:
         return f"BoundingBox(x={self.x}, y={self.y}, width={self.width}, height={self.height}, label={self.label}, color={self.color})"
 
@@ -86,6 +103,13 @@ class Point(OverlayItem):
     def draw(self, frame: np.ndarray):
         """Draws the point on a frame."""
         cv2.circle(frame, (self.x, self.y), min(frame.shape[:2]) // 200,  self.color, -1)
+
+    def warp(self, warp_funcs: List[Callable[[np.ndarray], np.ndarray]]):
+        """Warps the point coordinates."""
+        coords = np.array([[self.x, self.y]], dtype=np.float32)
+        for func in warp_funcs:
+            coords = func(coords)
+        self.x, self.y = int(coords[0][0]), int(coords[0][1])
 
     def __repr__(self) -> str:
         return f"Point(x={self.x}, y={self.y}, color={self.color})"
@@ -115,6 +139,13 @@ class Line(OverlayItem):
         pts = np.array(self.points, dtype=np.int32).reshape(-1, 1, 2)
         cv2.polylines(frame, [pts], isClosed=False, color=self.color, thickness=self.thickness)
         cv2.circle(frame, self.points[-1], min(frame.shape[:2]) // 200, self.color, -1)
+
+    def warp(self, warp_funcs: List[Callable[[np.ndarray], np.ndarray]]):
+        """Warps the line coordinates."""
+        coords = np.array(self.points, dtype=np.float32)
+        for func in warp_funcs:
+            coords = func(coords)
+        self.points = [tuple(int(p) for p in point) for point in coords]
 
     def __repr__(self) -> str:
         return f"Line(start={self.points[0]}, end={self.points[-1]}, num_points={len(self.points)}, color={self.color})"

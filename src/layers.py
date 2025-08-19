@@ -213,7 +213,6 @@ class MotionStabilizer:
             self._first_pts = self._last_pts = self._current_pts = state["current_pts"]
             return False
         
-        
         self._last_frame = self._current_frame
         self._last_pts = self._current_pts[state["last_alive"]]
         self._current_frame = frame
@@ -229,66 +228,26 @@ class MotionStabilizer:
         warped_to_first = cv.warpPerspective(frame, np.linalg.inv(self._H), (w, h))
         return warped_to_first
 
-    def get_stereo_warped_frame(self, frame: np.ndarray, state: Dict[Any, Any]) -> np.ndarray:    
+    def get_stereo_warped_frame(self, frame: np.ndarray, state: Dict[Any, Any]) -> Tuple[np.ndarray, Optional[Callable]]:    
         is_extracted = self._extract_state_metadata(frame, state)
         if not is_extracted:
-            return frame
+            return frame, None
         
         h, w = frame.shape[:2]
     
         H_to_last, _ = cv.findHomography(self._current_pts, self._last_pts, cv.RANSAC, 3.0)
+        if H_to_last is None:
+            return frame, None
+
         self._H @= H_to_last
         warped = cv.warpPerspective(frame, self._H, (w, h))
-        return warped
 
-    def get_stereo_rectified_frame(self, frame: np.ndarray, state: Dict[Any, Any]) -> np.ndarray:
-        is_extracted = self._extract_state_metadata(frame, state)
-        if not is_extracted:
-            return frame
-        
-        h, w = frame.shape[:2]
-        
-        # 1) FUNDAMENTAL (8-point via RANSAC)
-        F, inliers = cv.findFundamentalMat(self._last_pts, self._current_pts, method=cv.FM_RANSAC,
-                                        ransacReprojThreshold=1.0, confidence=0.999)
-        inliers = inliers.ravel().astype(bool)
-        pts1_i, pts2_i = self._last_pts[inliers], self._current_pts[inliers]
-        assert F is not None and F.shape == (3,3), "F estimation failed."
+        def warp_func(coords: np.ndarray) -> np.ndarray:
+            H_inv = np.linalg.inv(self._H)
+            warped_coords = cv.perspectiveTransform(np.array([coords]), H_inv)
+            return warped_coords[0]
 
-        # 2) RECTIFY UNCALIBRATED (returns H1,H2)
-        ok, H1, H2 = cv.stereoRectifyUncalibrated(pts1_i, pts2_i, F, imgSize=(w, h))
-        assert ok, "Uncalibrated rectification failed."
-
-        # Warp both images to the rectified domain
-        rect1 = cv.warpPerspective(self._last_frame, H1, (w, h))
-        rect2 = cv.warpPerspective(frame, H2, (w, h))
-
-        # 3) DISPARITY (SGBM works well)
-        # numDisparities must be divisible by 16; tune for your baseline/scene.
-        minDisp = 0
-        numDisp = 64  # try 64/96/128 depending on scene
-        blk = 5
-        sgbm = cv.StereoSGBM.create(minDisparity=minDisp,
-                                    numDisparities=numDisp,
-                                    blockSize=blk,
-                                    P1=8*1*blk*blk,
-                                    P2=32*1*blk*blk,
-                                    disp12MaxDiff=1,
-                                    uniquenessRatio=10,
-                                    speckleWindowSize=50,
-                                    speckleRange=1)
-        disp = sgbm.compute(rect1, rect2).astype(np.float32) / 16.0  # disparity in pixels
-
-        # 4) WARP rectified frame2 ONTO rectified frame1 using disparity
-        # For rectified pairs: x_left ~ x_right + disp  =>  x_right = x_left - disp
-        yy, xx = np.meshgrid(np.arange(h, dtype=np.float32),
-                            np.arange(w, dtype=np.float32), indexing='ij')
-        map_x = (xx - disp).astype(np.float32)
-        map_y = yy.astype(np.float32)
-        aligned2_on_1 = cv.remap(rect2, map_x, map_y, interpolation=cv.INTER_LINEAR,
-                                borderMode=cv.BORDER_CONSTANT, borderValue=0)
-        
-        return aligned2_on_1
+        return warped, warp_func
 
 
 class BackgroundSubtraction:
@@ -325,12 +284,20 @@ class CropImage:
     """
     def __init__(self, crop_percentage: float = 0.1):
         self.crop_percentage = crop_percentage
+        self.crop_h = 0
+        self.crop_w = 0
 
-    def __call__(self, frame: np.ndarray) -> np.ndarray:
+    def __call__(self, frame: np.ndarray) -> Tuple[np.ndarray, Callable[[np.ndarray], np.ndarray]]:
         h, w = frame.shape[:2]
-        crop_h = int(h * self.crop_percentage)
-        crop_w = int(w * self.crop_percentage)
-        return frame[crop_h:h - crop_h, crop_w:w - crop_w]
+        self.crop_h = int(h * self.crop_percentage)
+        self.crop_w = int(w * self.crop_percentage)
+        
+        cropped_frame = frame[self.crop_h:h - self.crop_h, self.crop_w:w - self.crop_w]
+        
+        def warp_func(coords: np.ndarray) -> np.ndarray:
+            return coords + np.array([self.crop_w, self.crop_h])
+            
+        return cropped_frame, warp_func
 
 
 class DetectClasses:
@@ -341,15 +308,24 @@ class DetectClasses:
         max_ratio: float = 2.0,
         max_age: int = 5,
         min_hits: int = 20,
-        iou_threshold: float = 0.3
+        iou_threshold: float = 0.3,
+        init_frame_num: int = 10
     ) -> None:
         self.sort_tracker = Sort(max_age=max_age, min_hits=min_hits, iou_threshold=iou_threshold)
         self.dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (dilate_size, dilate_size))
         self.max_size = max_size
         self.max_ratio = max_ratio
+        self.frame_num = 0
+        self.init_frame_num = init_frame_num
 
     def __call__(self, frame: np.ndarray) -> List[OverlayItem]:
         assert frame.ndim == 2, "Input frame must be grayscale (2D array)."
+        
+        # Skip processing for the first few frames
+        self.frame_num += 1
+        if self.frame_num < self.init_frame_num:
+            return []
+        
         frame = cv.morphologyEx(frame, cv.MORPH_DILATE, self.dilate_kernel)
         contours, _ = cv.findContours(frame, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         # Fill bounding boxes for each contour
