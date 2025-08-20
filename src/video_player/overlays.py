@@ -69,10 +69,10 @@ class OverlayItem(ABC):
 class BoundingBox(OverlayItem):
     """A class to represent a single bounding box."""
     def __init__(self, x: int, y: int, width: int, height: int, label: Optional[str] = None, color: Color = Color(0, 255, 0)):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
+        self.x = int(x)
+        self.y = int(y)
+        self.width = int(width)
+        self.height = int(height)
         self.label = str(label)
         self.color = color.as_tuple() if isinstance(color, Color) else color
 
@@ -80,7 +80,7 @@ class BoundingBox(OverlayItem):
         """Draws the bounding box on a frame."""
         cv2.rectangle(frame, (self.x, self.y), (self.x + self.width, self.y + self.height), self.color, 2)
         if self.label:
-            cv2.putText(frame, self.label, (self.x, self.y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.color, 2)
+            cv2.putText(frame, self.label, (self.x, self.y - 10), cv2.FONT_HERSHEY_PLAIN, 1.5, self.color, 1, cv2.LINE_AA)
 
     def warp(self, warp_funcs: List[Callable[[np.ndarray], np.ndarray]]):
         """Warps the bounding box coordinates."""
@@ -101,8 +101,8 @@ class BoundingBox(OverlayItem):
 class Point(OverlayItem):
     """A class to represent a single point."""
     def __init__(self, x: int, y: int, color: Color = Color(0, 255, 0)):
-        self.x = x
-        self.y = y
+        self.x = int(x)
+        self.y = int(y)
         self.color = color.as_tuple() if isinstance(color, Color) else color
 
     def draw(self, frame: np.ndarray):

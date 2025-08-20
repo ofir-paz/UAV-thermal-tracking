@@ -1,5 +1,4 @@
 import cv2
-import threading
 import time
 import numpy as np
 

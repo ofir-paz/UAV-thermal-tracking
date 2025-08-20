@@ -1,5 +1,4 @@
 from .video import Video
-from .transformations import to_grayscale, canny_edge_detector
 from .overlays import Overlay, OverlayItem, BoundingBox, Point, Line, np_to_overlay_items, Color
 from .utils import load_bounding_boxes_from_csv
 from .base_player import BasePlayer
