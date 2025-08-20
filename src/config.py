@@ -4,6 +4,7 @@ from typing import final
 from collections import OrderedDict
 from enum import IntEnum
 import numpy as np
+from video_player import Color
 
 
 # Set settings
@@ -48,16 +49,16 @@ class VideosConfig:
 
 
 class Classes(IntEnum):
-    COLOR: str
+    COLOR: Color
     TEXT: str
     
     def __new__(cls, value, color, text):
         obj = int.__new__(cls, value)
         obj._value_ = value
-        obj.COLOR = color
+        obj.COLOR = Color(color)
         obj.TEXT = text
         return obj
 
-    BACKGROUND = 0, "#000000", "Background"
-    PERSON     = 1, "#ff0000", "Person"
-    VEHICLE    = 2, "#00ff00", "Vehicle"
+    BACKGROUND = 0, Color("#cdcdcd"), "Background"
+    PERSON     = 1, Color("#ff0000"), "Person"
+    VEHICLE    = 2, Color("#00ff00"), "Vehicle"
