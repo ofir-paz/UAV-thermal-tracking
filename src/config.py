@@ -28,6 +28,7 @@ class VideosConfig:
     MOVING_CHECK = pjoin(DATA_DIR, "moving_check.mp4")
     MV1 = pjoin(DATA_DIR, "mv1.mp4")
     PERSONS = pjoin(DATA_DIR, "persons.mp4")
+    FPS = FRAME_RATE = 29.994
     
     VIDEOS = OrderedDict(
         inpp=INPP,
