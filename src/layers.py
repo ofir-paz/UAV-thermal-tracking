@@ -1,10 +1,11 @@
 from typing import Any, Dict, List, Literal, Tuple, Optional, Callable, Union
-from collections import deque
+from collections import deque, defaultdict
+from enum import Enum
 import cv2 as cv
 import numpy as np
-from config import Classes
+import supervision as sv
+from config import Classes, VideosConfig
 from video_player import Line, BoundingBox, OverlayItem, Color, np_to_overlay_items
-from sort import Sort
 
 
 class MedianFilter:
@@ -325,19 +326,21 @@ class CropImage:
 
 
 class DetectClasses:
-    DUMMY_SCORE = 0  # Dummy score for SORT compatibility
-
     def __init__(
         self, 
         dilate_size: int = 8, 
         max_size: int = 50, 
         max_ratio: float = 2.0,
+        vehicle_min_size: int = 20 * 20,
+        person_h_w_ratio: float = 0.95,
         init_frame_num: int = 10,
         return_overlay_items: bool = True
     ) -> None:
         self.dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (dilate_size, dilate_size))
         self.max_size = max_size
         self.max_ratio = max_ratio
+        self.vehicle_min_size = vehicle_min_size
+        self.person_h_w_ratio = person_h_w_ratio
         self.init_frame_num = init_frame_num
         self.return_overlay_items = return_overlay_items
         self.frame_num = 0
@@ -354,30 +357,51 @@ class DetectClasses:
         contours, _ = cv.findContours(frame, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         # Fill bounding boxes for each contour
         bounding_boxes: List[OverlayItem] = []
-        detections = np.empty((0, 5), dtype=np.int32)  # (x1, y1, x2, y2, score)
+        xyxy = []
+        class_id = []
+        confidences = []
 
         for contour in contours:
             x, y, w, h = cv.boundingRect(contour)
-            klass = self._classify_contour(x, y, w, h)
+            klass, score = self._classify_contour(x, y, w, h)
             if klass == Classes.BACKGROUND:
                 continue
+            
             if self.return_overlay_items:
-                bounding_boxes.append(BoundingBox(x, y, w, h, label=klass.TEXT, color=klass.COLOR))
-            detections = np.append(detections, [[x, y, x + w, y + h, self.DUMMY_SCORE]], axis=0)
+                label = f"{klass.TEXT} {score:.2f}"
+                bounding_boxes.append(BoundingBox(x, y, w, h, label=label, color=klass.COLOR))
+            
+            xyxy.append([x, y, x + w, y + h])
+            class_id.append(klass.value)
+            confidences.append(score)
 
-        state["detections"] = detections
+        state["detections"] = sv.Detections(
+            xyxy=np.array(xyxy, dtype=np.float32),
+            class_id=np.array(class_id, dtype=np.int32),
+            confidence=np.array(confidences, dtype=np.float32)
+        ) if xyxy else sv.Detections.empty()
+
         return bounding_boxes
 
-    def _classify_contour(self, x: int, y: int, w: int, h: int) -> Classes:
+    def _classify_contour(self, x: int, y: int, w: int, h: int) -> Tuple[Classes, float]:
         """Classifies the contour based on its position and size."""
         if self._filter_contour(x, y, w, h):
-            return Classes.BACKGROUND
-        elif w * h > 20 * 20:
-            return Classes.VEHICLE
-        elif h / w > 0.95:
-            return Classes.PERSON
+            return Classes.BACKGROUND, 0.0
+        
+        elif w * h > self.vehicle_min_size:
+            size_score = min(w * h / (self.vehicle_min_size * 1.5), 1.0)
+            ratio_score = w / (h + w)
+            vehicle_score = (0.8 * size_score + 0.2 * ratio_score) / (size_score + ratio_score)
+            return Classes.VEHICLE, vehicle_score
+        
+        elif h / w > self.person_h_w_ratio:
+            size_score = -0.04 * np.sqrt(w * h) + 1.0
+            ratio_score = min(h / (w * 1.4), 1.0)
+            person_score = (0.6 * size_score + 0.4 * ratio_score) / (size_score + ratio_score)
+            return Classes.PERSON, person_score
+        
         else:
-            return Classes.BACKGROUND
+            return Classes.BACKGROUND, 0.0
 
     def _filter_contour(self, x: int, y: int, w: int, h: int) -> bool:
         """Filters out contours that are too small or too large."""
@@ -393,14 +417,55 @@ class TrackDetectedObjects:
     """
     Tracks detected objects across frames using SORT.
     """
+    class Library(Enum):
+        SORT = "sort"
+        TRACKERS = "trackers"
+
+    class ObjectType:
+        def __init__(self):
+            self._counts = defaultdict(int)
+
+        def was_detected_as(self, class_id: int) -> None:
+            self._counts[class_id] += 1
+
+        def get_class(self) -> int:
+            if not self._counts:
+                return Classes.BACKGROUND.value
+            most_common_class = max(self._counts.items(), key=lambda item: item[1])[0]
+            return most_common_class
+
     def __init__(
         self, 
         max_age: int = 5, 
         min_hits: int = 20, 
         iou_threshold: float = 0.3,
-        init_frame_num: int = 10
-    ):
-        self.sort_tracker = Sort(max_age=max_age, min_hits=min_hits, iou_threshold=iou_threshold)
+        score_threshold: float = 0.5,
+        init_frame_num: int = 10,
+        library: Literal["SORT", "Trackers"] = "SORT",
+        **kwargs
+    ) -> None:
+        self._library = self.Library(library.lower())
+
+        if self._library == self.Library.TRACKERS:
+            from trackers import SORTTracker
+            self.tracker = SORTTracker(
+                lost_track_buffer=max_age, 
+                frame_rate=kwargs.get("frame_rate", VideosConfig.FRAME_RATE),
+                track_activation_threshold=score_threshold,
+                minimum_consecutive_frames=min_hits,
+                minimum_iou_threshold=iou_threshold
+            )
+        elif self._library == self.Library.SORT:
+            from sort import Sort
+            self.tracker = Sort(
+                max_age=max_age, 
+                min_hits=min_hits, 
+                iou_threshold=iou_threshold,
+            )
+        else:
+            raise ValueError(f"Unsupported library: {library}. Use 'SORT' or 'Trackers'.")
+
+        self.object_types: Dict[int, self.ObjectType] = defaultdict(self.ObjectType)
         self.init_frame_num = init_frame_num
         self.frame_num = 0
 
@@ -414,13 +479,38 @@ class TrackDetectedObjects:
         if self.frame_num < self.init_frame_num:
             return []
         
-        _detections: np.ndarray = state.get("detections", np.empty((0, 5), dtype=np.int32))
+        _detections: sv.Detections = state.get("detections", sv.Detections.empty())
 
-        tracked_objects = self.sort_tracker.update(_detections)
-    
-        if tracked_objects.shape[0] > 0:
-            tracked_objects[:, 2] -= tracked_objects[:, 0]
-            tracked_objects[:, 3] -= tracked_objects[:, 1]
+        if self._library == self.Library.TRACKERS:
+            tracked_objects = self.tracker.update(_detections)
 
-        return np_to_overlay_items(tracked_objects, BoundingBox)
+            bbs: List[OverlayItem] = []
+            for (xyxy, _, confidence, class_id, tracker_id, _) in tracked_objects:
+                tracker_id = int(tracker_id)
+                if tracker_id == -1:
+                    continue
+
+                # Fix detected class ID
+                self.object_types[tracker_id].was_detected_as(class_id)
+                class_id = self.object_types[tracker_id].get_class()
+
+                x = xyxy[0]; y = xyxy[1]
+                w = xyxy[2] - x; h = xyxy[3] - y
+                label = f"ID: {tracker_id} {Classes(class_id).TEXT} {confidence:.2f}"
+                color = Classes(class_id).COLOR
+
+                bbs.append(BoundingBox(x, y, w, h, label, color))
+            
+            return bbs
+
+        elif self._library == self.Library.SORT:
+            # Add dummy scores. SORT requires a score column, but it doesn't use it.
+            dets = np.hstack((_detections.xyxy, np.zeros((_detections.xyxy.shape[0], 1))), dtype=np.float32)
+            tracked_objects = self.tracker.update(dets)
+
+            if tracked_objects.shape[0] > 0:
+                tracked_objects[:, 2] -= tracked_objects[:, 0]
+                tracked_objects[:, 3] -= tracked_objects[:, 1]
+
+            return np_to_overlay_items(tracked_objects, BoundingBox)
     

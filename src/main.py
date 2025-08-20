@@ -23,7 +23,7 @@ def add_layers(video: Video) -> Video:
     flow_overlay = OpticalFlowLambda(return_overlay_items=False)
     motion_stabilizer = MotionStabilizer(crop_percentage=0.05)
     detect_classes = DetectClasses(return_overlay_items=False)
-    tracker = TrackDetectedObjects(min_hits=30, max_age=20)
+    tracker = TrackDetectedObjects(max_age=25, min_hits=45, iou_threshold=0.6, score_threshold=0.475, library="Trackers")
 
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
     video.add_transform("Motion Stabilize", motion_stabilizer.get_stereo_warped_frame)
@@ -63,7 +63,7 @@ def play_remapped() -> None:
 def save() -> None:
     video = get_video()
     video.set_play_mode('original_with_remapped')
-    video.save_video(output_path=pjoin(OUTPUT_DIR, "debug", "v2-tracking.mp4"),)
+    video.save_video(output_path=pjoin(OUTPUT_DIR, "debug", "v2.1-tracking.mp4"),)
 
 
 def main() -> None:
