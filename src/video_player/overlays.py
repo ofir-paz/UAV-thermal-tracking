@@ -1,3 +1,4 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional, Type, overload, Union, Any, Callable
 import numpy as np
@@ -13,10 +14,12 @@ class Color:
     def __init__(self, r: int, g: int, b: int) -> None: ...
     @overload
     def __init__(self, color: str) -> None: ...
+    @overload
+    def __init__(self, color: Color) -> None: ...
 
     def __init__(
         self,
-        *args: Union[int, str, Tuple[int, int, int]],
+        *args: Union[int, str, Tuple[int, int, int], Color],
     ) -> None:
         if len(args) == 1:
             arg = args[0]
@@ -32,8 +35,10 @@ class Color:
                     raise ValueError(
                         "Color string must start with '#' or provide an RGB tuple."
                     )
+            elif isinstance(args[0], Color):
+                self.r, self.g, self.b = args[0].as_tuple()
             else:
-                raise TypeError("Single argument must be tuple[int, int, int] or str.")
+                raise TypeError("Single argument must be tuple[int, int, int] or str or Color.")
         elif len(args) == 3 and all(isinstance(a, int) for a in args):
             self.r, self.g, self.b = args  # type: ignore[assignment]
         else:
@@ -41,7 +46,7 @@ class Color:
 
     def as_tuple(self) -> Tuple[int, int, int]:
         """Returns the color as a tuple."""
-        return (self.r, self.g, self.b)
+        return (self.r, self.g, self.b)  # type: ignore[return-value]
 
 
 class OverlayItem(ABC):
