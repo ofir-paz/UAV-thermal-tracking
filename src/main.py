@@ -13,16 +13,17 @@ from layers import (
     BandPassFilter, 
     MedianFilter, 
     CropImage,
-    DetectClasses
+    DetectClasses,
+    TrackDetectedObjects
 )
-from sort import Sort
 from config import VideosConfig, OUTPUT_DIR, pjoin
 
 
 def add_layers(video: Video) -> Video:
     flow_overlay = OpticalFlowLambda(return_overlay_items=False)
     motion_stabilizer = MotionStabilizer(crop_percentage=0.05)
-    detect_classes = DetectClasses(min_hits=30, max_age=20)
+    detect_classes = DetectClasses(return_overlay_items=False)
+    tracker = TrackDetectedObjects(min_hits=30, max_age=20)
 
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
     video.add_transform("Motion Stabilize", motion_stabilizer.get_stereo_warped_frame)
@@ -32,6 +33,7 @@ def add_layers(video: Video) -> Video:
     video.add_transform("Crop Image", motion_stabilizer.post_warp_crop)
     video.add_transform("Morphological Operation", get_morphological_op(3, 4))
     video.add_online_overlay(name="Detect Classes", overlay_func=detect_classes)
+    video.add_online_overlay(name="Track Detected Objects", overlay_func=tracker)
     #video.add_transform("Motion Stabilize Back", motion_stabilizer.warp_back)
 
     return video

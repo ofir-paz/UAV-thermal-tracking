@@ -325,24 +325,24 @@ class CropImage:
 
 
 class DetectClasses:
+    DUMMY_SCORE = 0  # Dummy score for SORT compatibility
+
     def __init__(
         self, 
         dilate_size: int = 8, 
         max_size: int = 50, 
         max_ratio: float = 2.0,
-        max_age: int = 5,
-        min_hits: int = 20,
-        iou_threshold: float = 0.3,
-        init_frame_num: int = 10
+        init_frame_num: int = 10,
+        return_overlay_items: bool = True
     ) -> None:
-        self.sort_tracker = Sort(max_age=max_age, min_hits=min_hits, iou_threshold=iou_threshold)
         self.dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (dilate_size, dilate_size))
         self.max_size = max_size
         self.max_ratio = max_ratio
-        self.frame_num = 0
         self.init_frame_num = init_frame_num
+        self.return_overlay_items = return_overlay_items
+        self.frame_num = 0
 
-    def __call__(self, frame: np.ndarray) -> List[OverlayItem]:
+    def __call__(self, frame: np.ndarray, state: Dict[Any, Any]) -> List[OverlayItem]:
         assert frame.ndim == 2, "Input frame must be grayscale (2D array)."
         
         # Skip processing for the first few frames
@@ -354,21 +354,19 @@ class DetectClasses:
         contours, _ = cv.findContours(frame, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         # Fill bounding boxes for each contour
         bounding_boxes: List[OverlayItem] = []
-        dets = np.empty((0, 5), dtype=np.int32)  # (x1, y1, x2, y2, score)
+        detections = np.empty((0, 5), dtype=np.int32)  # (x1, y1, x2, y2, score)
 
         for contour in contours:
             x, y, w, h = cv.boundingRect(contour)
             klass = self._classify_contour(x, y, w, h)
             if klass == Classes.BACKGROUND:
                 continue
-            bounding_boxes.append(BoundingBox(x, y, w, h, label=klass.TEXT, color=Color(klass.COLOR)))
-            dets = np.append(dets, [[x, y, x + w, y + h, 0]], axis=0)  # Score is unused in sort
+            if self.return_overlay_items:
+                bounding_boxes.append(BoundingBox(x, y, w, h, label=klass.TEXT, color=klass.COLOR))
+            detections = np.append(detections, [[x, y, x + w, y + h, self.DUMMY_SCORE]], axis=0)
 
-        tracked_objects = self.sort_tracker.update(dets)
-        if tracked_objects.shape[0] > 0:
-            tracked_objects[:, 2] -= tracked_objects[:, 0]
-            tracked_objects[:, 3] -= tracked_objects[:, 1]
-        return np_to_overlay_items(tracked_objects, BoundingBox)
+        state["detections"] = detections
+        return bounding_boxes
 
     def _classify_contour(self, x: int, y: int, w: int, h: int) -> Classes:
         """Classifies the contour based on its position and size."""
@@ -389,3 +387,40 @@ class DetectClasses:
             w / h > self.max_ratio or
             h / w > self.max_ratio
         )
+
+
+class TrackDetectedObjects:
+    """
+    Tracks detected objects across frames using SORT.
+    """
+    def __init__(
+        self, 
+        max_age: int = 5, 
+        min_hits: int = 20, 
+        iou_threshold: float = 0.3,
+        init_frame_num: int = 10
+    ):
+        self.sort_tracker = Sort(max_age=max_age, min_hits=min_hits, iou_threshold=iou_threshold)
+        self.init_frame_num = init_frame_num
+        self.frame_num = 0
+
+    def __call__(self, frame: np.ndarray, state: Dict[Any, Any]) -> List[OverlayItem]:
+        """
+        Detections should be in the format (x1, y1, x2, y2, score).
+        Returns a list of OverlayItems representing tracked objects.
+        """
+        # Skip processing for the first few frames
+        self.frame_num += 1
+        if self.frame_num < self.init_frame_num:
+            return []
+        
+        _detections: np.ndarray = state.get("detections", np.empty((0, 5), dtype=np.int32))
+
+        tracked_objects = self.sort_tracker.update(_detections)
+    
+        if tracked_objects.shape[0] > 0:
+            tracked_objects[:, 2] -= tracked_objects[:, 0]
+            tracked_objects[:, 3] -= tracked_objects[:, 1]
+
+        return np_to_overlay_items(tracked_objects, BoundingBox)
+    
