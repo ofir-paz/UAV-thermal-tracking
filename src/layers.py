@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Tuple, Optional, Callable, Union
+from typing import Any, Dict, List, Literal, Tuple, Optional, Callable, Union, Deque
 from collections import deque, defaultdict
 from enum import Enum
 import cv2 as cv
@@ -10,17 +10,99 @@ from video_player import Line, BoundingBox, OverlayItem, Color, np_to_overlay_it
 
 class MedianFilter:
     """
-    Median filter to remove noise from a gray scale image.
+    Drop-in optimized median filter.
+
+    Behavior:
+      - If num_history_frames <= 1:
+          * kernel_size > 1  -> spatial median via cv.medianBlur
+          * kernel_size <= 1 -> returns the frame unchanged
+      - Else:
+          * temporal median across 'num_history_frames' frames sampled every
+            'history_dilation' calls (no spatial median in this branch,
+            same as original code).
     """
-    def __init__(self, kernel_size: int = 3):
-        self.kernel_size = kernel_size
+    def __init__(self, kernel_size: int = 1, num_history_frames: int = 5, history_dilation: int = 2):
+        assert num_history_frames >= 1, "num_history_frames must be >= 1"
+        assert history_dilation >= 1, "history_dilation must be >= 1"
+
+        # Ensure odd kernel (OpenCV requires positive odd for medianBlur)
+        self.kernel_size = int(kernel_size)
+        if self.kernel_size < 1:
+            self.kernel_size = 1
+        if self.kernel_size % 2 == 0:
+            self.kernel_size += 1
+
+        self.num_history_frames = int(num_history_frames)
+        self.history_dilation   = int(history_dilation)
+
+        # Ring buffer for sampled frames (shape will be allocated on first call)
+        self._ring = None          # np.ndarray of shape (N, H, W), dtype matches input
+        self._ring_write_idx = 0   # next write position in ring
+        self._ring_filled = 0      # number of valid frames currently in ring
+        self._call_count = 0       # to apply dilation
+
+    def _ensure_ring(self, frame: np.ndarray) -> None:
+        """Allocate/resize ring buffer to match frame shape/dtype."""
+        if (self._ring is None or
+            self._ring.shape[1:] != frame.shape or
+            self._ring.dtype != frame.dtype):
+            self._ring = np.empty((self.num_history_frames, *frame.shape), dtype=frame.dtype)
+            self._ring_write_idx = 0
+            self._ring_filled = 0
+
+    def _temporal_median(self, sample: np.ndarray) -> np.ndarray:
+        """
+        Compute per-pixel median across axis=0 of 'sample' with shape (T,H,W)
+        using np.partition (O(T) per pixel). Assumes T == self.num_history_frames.
+        """
+        T = sample.shape[0]
+        # For odd T we need the kth element; for even we average the two middles.
+        k = T // 2
+        if T % 2 == 1:
+            # Partition at k; the kth slice holds the median values at each pixel.
+            part = np.partition(sample, kth=k, axis=0)
+            return part[k]
+        else:
+            # Partition at both k-1 and k to get the two middle order statistics.
+            part = np.partition(sample, kth=(k-1, k), axis=0)
+            lo = part[k-1]
+            hi = part[k]
+            # Average safely (avoid uint8 overflow):
+            if sample.dtype == np.uint8:
+                return ((lo.astype(np.uint16) + hi.astype(np.uint16)) // 2).astype(np.uint8)
+            else:
+                return ((lo.astype(np.float32) + hi.astype(np.float32)) * 0.5).astype(sample.dtype, copy=False)
 
     def __call__(self, frame: np.ndarray) -> np.ndarray:
         assert frame.ndim == 2, "Input frame must be grayscale (2D array)."
-        # Apply median blur to remove noise
-        filtered = cv.medianBlur(frame, self.kernel_size)
-        return filtered
+        # Make sure strides are sane for fast ops
+        if not frame.flags.c_contiguous:
+            frame = np.ascontiguousarray(frame)
 
+        # Fast paths when not using temporal history
+        if self.num_history_frames <= 1:
+            if self.kernel_size > 1:
+                return cv.medianBlur(frame, self.kernel_size)
+            return frame  # kernel_size == 1 ➜ identity
+
+        # Temporal mode
+        self._ensure_ring(frame)
+        self._call_count += 1
+
+        # Sample only every 'history_dilation' frames
+        if (self._call_count % self.history_dilation) == 0:
+            self._ring[self._ring_write_idx] = frame
+            self._ring_write_idx = (self._ring_write_idx + 1) % self.num_history_frames
+            if self._ring_filled < self.num_history_frames:
+                self._ring_filled += 1
+
+        # Warm-up: not enough history yet ➜ return current frame (lowest latency)
+        if self._ring_filled < self.num_history_frames:
+            return frame
+
+        # Median is order-invariant, so we can use the ring as-is (no reordering/copy).
+        # Shape: (N, H, W)
+        return self._temporal_median(self._ring)
 
 class HighPassFilter:
     """
@@ -232,7 +314,7 @@ class MotionStabilizer:
         warped_to_first = cv.warpPerspective(frame, np.linalg.inv(self._H), (w, h))
         return warped_to_first
 
-    def get_stereo_warped_frame(self, frame: np.ndarray, state: Dict[Any, Any]) -> Tuple[np.ndarray, Optional[Callable]]:    
+    def get_corrected_frame(self, frame: np.ndarray, state: Dict[Any, Any]) -> Tuple[np.ndarray, Optional[Callable]]:    
         is_extracted = self._extract_state_metadata(frame, state)
         if not is_extracted:
             return frame, None
@@ -272,7 +354,7 @@ class BackgroundSubtraction:
         if method == "KNN":
             self.bg_subtractor = cv.createBackgroundSubtractorKNN(history=200, dist2Threshold=500, detectShadows=False)
         elif method == "MOG":
-            self.bg_subtractor = cv.createBackgroundSubtractorMOG2(history=200, varThreshold=16, detectShadows=False)
+            self.bg_subtractor = cv.createBackgroundSubtractorMOG2(history=150, varThreshold=25, detectShadows=False)
 
     def __call__(self, frame: np.ndarray) -> np.ndarray:
         fg_mask = self.bg_subtractor.apply(frame)
