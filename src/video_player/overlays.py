@@ -158,10 +158,11 @@ class Line(OverlayItem):
 
 class Text(OverlayItem):
     """A class to represent a text overlay."""
-    def __init__(self, text: str, position: Tuple[int, int], color: Color = Color(255, 0, 255)):
+    def __init__(self, text: str, position: Tuple[int, int], color: Color = Color(255, 0, 255), use_warp: bool = True):
         self.text = text
         self.position = position
         self.color = color.as_tuple() if isinstance(color, Color) else color
+        self.use_warp = use_warp
 
     def draw(self, frame: np.ndarray):
         """Draws the text on a frame."""
@@ -169,6 +170,9 @@ class Text(OverlayItem):
 
     def warp(self, warp_funcs: List[Callable[[np.ndarray], np.ndarray]]):
         """Warps the text position."""
+        if self.use_warp is False:  # If warping is not enabled, do nothing
+            return
+        
         coords = np.array([self.position], dtype=np.float32)
         for func in warp_funcs:
             coords = func(coords)

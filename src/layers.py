@@ -356,7 +356,7 @@ class MotionStabilizer:
             warped = cv.warpAffine(warped, self._homography_fix, (w, h))
 
         def warp_func(coords: np.ndarray) -> np.ndarray:
-            H_inv = np.linalg.inv(self._H)
+            H_inv = np.linalg.inv(np.concatenate((self._homography_fix, [[0, 0, 1]]), axis=0) @ self._H)
             warped_coords = cv.perspectiveTransform(np.array([coords]), H_inv)
             return warped_coords[0]
 
@@ -588,6 +588,7 @@ class TrackDetectedObjects:
         self.object_types: Dict[int, self.ObjectType] = defaultdict(self.ObjectType)
         self.init_frame_num = init_frame_num
         self.min_car_l1_speed = min_car_l1_speed
+        self.show_velocity = kwargs.get("show_velocity", False)
         self.frame_num = 0
 
     def __call__(self, frame: np.ndarray, state: Dict[Any, Any]) -> List[OverlayItem]:
@@ -622,7 +623,7 @@ class TrackDetectedObjects:
 
                 x = xyxy[0]; y = xyxy[1]
                 w = xyxy[2] - x; h = xyxy[3] - y
-                label = f"id: {tracker_id} vel: {vx:.3f} {vy:.3f}"
+                label = f"id: {tracker_id}" + self.show_velocity * f" vel: {vx:.3f} {vy:.3f}"
                 color = Classes(class_id).COLOR
 
                 bbs.append(BoundingBox(x, y, w, h, label, color))
@@ -674,5 +675,5 @@ def legend_overlay(frame: np.ndarray) -> List[OverlayItem]:
             continue
         label = f"{klass.TEXT} color"
         color = klass.COLOR
-        overlays.append(Text(label, (10, 40 + 40 * klass.value), color))
+        overlays.append(Text(label, (10, 40 + 40 * klass.value), color, use_warp=False))
     return overlays
