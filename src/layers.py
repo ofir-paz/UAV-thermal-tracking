@@ -40,6 +40,8 @@ class MedianFilter:
         self._ring_write_idx = 0   # next write position in ring
         self._ring_filled = 0      # number of valid frames currently in ring
         self._call_count = 0       # to apply dilation
+        self._cached_temporal = None
+        self._last_update_was_sample = False
 
     def _ensure_ring(self, frame: np.ndarray) -> None:
         """Allocate/resize ring buffer to match frame shape/dtype."""
@@ -90,19 +92,32 @@ class MedianFilter:
         self._call_count += 1
 
         # Sample only every 'history_dilation' frames
+        updated = False
         if (self._call_count % self.history_dilation) == 0:
             self._ring[self._ring_write_idx] = frame
             self._ring_write_idx = (self._ring_write_idx + 1) % self.num_history_frames
             if self._ring_filled < self.num_history_frames:
                 self._ring_filled += 1
+            updated = True
 
-        # Warm-up: not enough history yet ➜ return current frame (lowest latency)
+        # Warm-up
         if self._ring_filled < self.num_history_frames:
             return frame
 
-        # Median is order-invariant, so we can use the ring as-is (no reordering/copy).
-        # Shape: (N, H, W)
-        return self._temporal_median(self._ring)
+        # Recompute only when we actually added a new sample
+        if updated or self._cached_temporal is None:
+            T = self._ring.shape[0]
+            if T == 3:
+                A, B, C = self._ring[0], self._ring[1], self._ring[2]
+                lo = np.minimum(np.minimum(A, B), C)
+                hi = np.maximum(np.maximum(A, B), C)
+                S  = A.astype(np.uint16) + B.astype(np.uint16) + C.astype(np.uint16)
+                self._cached_temporal = (S - lo.astype(np.uint16) - hi.astype(np.uint16)).astype(np.uint8)
+            else:
+                # fallback (odd/even T) using partition as you had
+                self._cached_temporal = self._temporal_median(self._ring)
+
+        return self._cached_temporal
 
 class HighPassFilter:
     """
