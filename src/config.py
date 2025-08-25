@@ -23,7 +23,7 @@ class VideosConfig:
     """
     Configuration class for video paths.
     """
-    INPP = pjoin(DATA_DIR, "inpp")
+    INPP = pjoin(DATA_DIR, "inpp.mp4")
     MOVE1 = pjoin(DATA_DIR, "move1.mp4")
     MOVING_CHECK = pjoin(DATA_DIR, "moving_check.mp4")
     MV1 = pjoin(DATA_DIR, "mv1.mp4")
