@@ -5,7 +5,7 @@ import cv2 as cv
 import numpy as np
 import supervision as sv
 from config import Classes, VideosConfig
-from video_player import Line, BoundingBox, OverlayItem, Color, np_to_overlay_items
+from video_player import Line, BoundingBox, OverlayItem, Color, Text, np_to_overlay_items
 
 
 class MedianFilter:
@@ -379,7 +379,7 @@ class MotionStabilizer:
 class BackgroundSubtraction:
     def __init__(self, method: Literal["KNN", "MOG"] = "KNN") -> None:
         if method == "KNN":
-            self.bg_subtractor = cv.createBackgroundSubtractorKNN(history=200, dist2Threshold=500, detectShadows=False)
+            self.bg_subtractor = cv.createBackgroundSubtractorKNN(history=100, dist2Threshold=600, detectShadows=False)
         elif method == "MOG":
             self.bg_subtractor = cv.createBackgroundSubtractorMOG2(history=150, varThreshold=25, detectShadows=False)
 
@@ -388,16 +388,15 @@ class BackgroundSubtraction:
         return fg_mask
 
 
-def get_morphological_op(open_size: int = 3, close_size: int = 4) -> Callable[[np.ndarray], np.ndarray]:
+def get_morphological_op(open_size: int = 3, close_size: int = 4, last_dilation_kernel: Tuple[int, int] = (2, 3)) -> Callable[[np.ndarray], np.ndarray]:
     """Returns a morphological operation function with the specified kernel size."""
     kernel_open = cv.getStructuringElement(cv.MORPH_ELLIPSE, (round(open_size * 0.67), round(open_size * 1.33)))
     kernel_close = cv.getStructuringElement(cv.MORPH_ELLIPSE, (round(close_size * 0.67), round(close_size * 1.33)))
-    last_dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (close_size + 1, close_size + 1))
+    last_dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, last_dilation_kernel)
 
     def morphological_op(frame: np.ndarray) -> np.ndarray:
         frame = cv.morphologyEx(frame, cv.MORPH_OPEN, kernel_open)
         frame = cv.morphologyEx(frame, cv.MORPH_CLOSE, kernel_close)
-        frame = cv.morphologyEx(frame, cv.MORPH_ERODE, kernel_open)
         frame = cv.morphologyEx(frame, cv.MORPH_DILATE, last_dilate_kernel)
         return frame
     
@@ -438,10 +437,10 @@ class DetectClasses:
     def __init__(
         self, 
         dilate_size: int = 8, 
-        max_size: int = 50, 
-        max_ratio: float = 2.0,
-        vehicle_min_size: int = 20 * 20,
-        person_h_w_ratio: float = 0.95,
+        max_size: int = 40, 
+        max_ratio: float = 2.25,
+        vehicle_min_size: int = 18 * 18,
+        person_h_w_ratio: float = 0.925,
         init_frame_num: int = 10,
         return_overlay_items: bool = True
     ) -> None:

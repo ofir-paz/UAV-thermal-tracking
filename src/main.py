@@ -21,18 +21,18 @@ from config import VideosConfig, OUTPUT_DIR, pjoin
 
 def add_layers(video: Video) -> Video:
     flow_overlay = OpticalFlowLambda(return_overlay_items=False)
-    motion_stabilizer = MotionStabilizer(crop_percentage=0.05)
-    detect_classes = DetectClasses(return_overlay_items=False)
-    tracker = TrackDetectedObjects(max_age=30, min_hits=40, iou_threshold=0.2, score_threshold=0.475, library="Trackers")
+    motion_stabilizer = MotionStabilizer(crop_percentage=0.05, fixer_ema_factor=0.975)
+    detect_classes = DetectClasses(dilate_size=0, return_overlay_items=False)
+    tracker = TrackDetectedObjects(max_age=35, min_hits=35, iou_threshold=0.1, score_threshold=0.47, library="Trackers")
 
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
     video.add_transform("Motion Stabilize", motion_stabilizer.get_corrected_frame)
-    video.add_transform("Median Blur", MedianFilter(1, 5, 2))
-    video.add_transform("Band Pass Filter", BandPassFilter(0.3, 5.5))
-    video.add_transform("Background Subtraction", BackgroundSubtraction("MOG"))
+    video.add_transform("Temporal Median", MedianFilter(1, 5, 2))
+    video.add_transform("Band Pass Filter", BandPassFilter(0.5, 6))
+    video.add_transform("Background Subtraction", BackgroundSubtraction("KNN"))
     video.add_transform("Crop Image", motion_stabilizer.post_warp_crop)
-    video.add_transform("Morphological Operation", get_morphological_op(3, 4))
-    video.add_online_overlay(name="Detect Classes", overlay_func=detect_classes)
+    video.add_transform("Morphological Operation", get_morphological_op(3, 4, (7, 9)))
+    video.add_online_overlay(name="Detect Classes", overlay_func=detect_classes)  # TODO: Add detection by score bins
     video.add_online_overlay(name="Track Detected Objects", overlay_func=tracker)
     #video.add_transform("Motion Stabilize Back", motion_stabilizer.warp_back)
 
