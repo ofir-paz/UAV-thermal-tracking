@@ -295,7 +295,7 @@ class OpticalFlowLambda:
 
 
 class MotionStabilizer:
-    def __init__(self, crop_percentage: Optional[float] = 0.1) -> None:
+    def __init__(self, crop_percentage: Optional[float] = 0.1, fixer_ema_factor: float = 1) -> None:
         self._first_frame: np.ndarray
         self._last_frame: np.ndarray
         self._current_frame: np.ndarray
@@ -306,6 +306,8 @@ class MotionStabilizer:
         
         self._H: np.ndarray = np.eye(3, dtype=np.float32)  # Homography matrix
         self.crop_percentage = crop_percentage
+        self.fixer_ema_factor = fixer_ema_factor
+        self._homography_fix = np.eye(2, 3, dtype=np.float32)
 
     def _extract_state_metadata(self, frame: np.ndarray, state: Dict[Any, Any]) -> bool:
         """Extracts and updates state metadata from the current frame."""
@@ -313,7 +315,8 @@ class MotionStabilizer:
             self._first_frame = self._last_frame = self._current_frame = frame.copy()
             self._first_pts = self._last_pts = self._current_pts = state["current_pts"]
             return False
-        
+
+        self._first_pts = self._first_pts[state["last_alive"]]
         self._last_frame = self._current_frame
         self._last_pts = self._current_pts[state["last_alive"]]
         self._current_frame = frame
@@ -336,12 +339,21 @@ class MotionStabilizer:
         
         h, w = frame.shape[:2]
     
-        H_to_last, _ = cv.findHomography(self._current_pts, self._last_pts, cv.RANSAC, 3.0)
-        if H_to_last is None:
-            return frame, None
+        H_ransac, inlier_mask = cv.findHomography(self._current_pts, self._last_pts, cv.RANSAC, 3.0)
+        inliers = inlier_mask.ravel().astype(bool)
+        H_to_last, _ = cv.findHomography(self._current_pts[inliers], self._last_pts[inliers], 0, 3.0)
 
         self._H @= H_to_last
+        self._H /= (self._H[2, 2] + 1e-12)  # Normalize
+        
         warped = cv.warpPerspective(frame, self._H, (w, h))
+
+        if self.fixer_ema_factor < 1:
+            _a = self.fixer_ema_factor
+            warped_points = cv.perspectiveTransform(self._current_pts[inliers].reshape(-1, 1, 2), self._H)
+            affine_2, _ = cv.estimateAffine2D(warped_points, self._first_pts[inliers], method=cv.LMEDS, refineIters=100)
+            self._homography_fix = _a * self._homography_fix + (1 - _a) * affine_2
+            warped = cv.warpAffine(warped, self._homography_fix, (w, h))
 
         def warp_func(coords: np.ndarray) -> np.ndarray:
             H_inv = np.linalg.inv(self._H)
