@@ -66,7 +66,7 @@ def play_remapped() -> None:
 def save() -> None:
     video = get_video()
     video.set_play_mode('original_with_remapped')
-    video.save_video(output_path=pjoin(OUTPUT_DIR, "debug", "v2.2-tracking.mp4"),)
+    video.save_video(output_path=pjoin(OUTPUT_DIR, "debug", "v2.3-tracking.mp4"),)
 
 
 def main() -> None:
