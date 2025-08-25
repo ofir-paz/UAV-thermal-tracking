@@ -156,6 +156,28 @@ class Line(OverlayItem):
         return f"Line(start={self.points[0]}, end={self.points[-1]}, num_points={len(self.points)}, color={self.color})"
 
 
+class Text(OverlayItem):
+    """A class to represent a text overlay."""
+    def __init__(self, text: str, position: Tuple[int, int], color: Color = Color(255, 0, 255)):
+        self.text = text
+        self.position = position
+        self.color = color.as_tuple() if isinstance(color, Color) else color
+
+    def draw(self, frame: np.ndarray):
+        """Draws the text on a frame."""
+        cv2.putText(frame, self.text, self.position, cv2.FONT_HERSHEY_SIMPLEX, 1, self.color, 2, cv2.LINE_AA)
+
+    def warp(self, warp_funcs: List[Callable[[np.ndarray], np.ndarray]]):
+        """Warps the text position."""
+        coords = np.array([self.position], dtype=np.float32)
+        for func in warp_funcs:
+            coords = func(coords)
+        self.position = (int(coords[0][0]), int(coords[0][1]))
+
+    def __repr__(self) -> str:
+        return f"Text(text={self.text}, position={self.position}, color={self.color})"
+
+
 class Overlay:
     """A class to manage a collection of bounding boxes for a single frame."""
     def __init__(self, name: str, overlay_items: List[OverlayItem]):
