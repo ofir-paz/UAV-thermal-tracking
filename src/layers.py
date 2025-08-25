@@ -531,17 +531,27 @@ class TrackDetectedObjects:
         TRACKERS = "trackers"
 
     class ObjectType:
-        def __init__(self):
+        def __init__(self, velocity_ema_factor: float = 0.05):
             self._counts = defaultdict(int)
+            self._velocity_ema = (0.0, 0.0)
+            self._velocity_ema_factor = velocity_ema_factor
 
-        def was_detected_as(self, class_id: int) -> None:
+        def was_detected_as(self, class_id: int, vx: float, vy: float) -> None:
             self._counts[class_id] += 1
+            _a = self._velocity_ema_factor
+            self._velocity_ema = (
+                _a * vx + (1 - _a) * self._velocity_ema[0],
+                _a * vy + (1 - _a) * self._velocity_ema[1]
+            )
 
         def get_class(self) -> int:
             if not self._counts:
                 return Classes.BACKGROUND.value
             most_common_class = max(self._counts.items(), key=lambda item: item[1])[0]
             return most_common_class
+        
+        def get_velocity(self) -> Tuple[float, float]:
+            return self._velocity_ema
 
     def __init__(
         self, 
@@ -550,6 +560,7 @@ class TrackDetectedObjects:
         iou_threshold: float = 0.3,
         score_threshold: float = 0.5,
         init_frame_num: int = 10,
+        min_car_l1_speed: float = 0.05,
         library: Literal["SORT", "Trackers"] = "SORT",
         **kwargs
     ) -> None:
@@ -576,6 +587,7 @@ class TrackDetectedObjects:
 
         self.object_types: Dict[int, self.ObjectType] = defaultdict(self.ObjectType)
         self.init_frame_num = init_frame_num
+        self.min_car_l1_speed = min_car_l1_speed
         self.frame_num = 0
 
     def __call__(self, frame: np.ndarray, state: Dict[Any, Any]) -> List[OverlayItem]:
@@ -592,20 +604,25 @@ class TrackDetectedObjects:
 
         if self._library == self.Library.TRACKERS:
             tracked_objects = self.tracker.update(_detections)
+            velocities = self._get_trackers_velocities()
 
             bbs: List[OverlayItem] = []
-            for (xyxy, _, confidence, class_id, tracker_id, _) in tracked_objects:
+            for (xyxy, _, confidence, class_id, tracker_id, _), (vx, vy) in zip(tracked_objects, velocities):
                 tracker_id = int(tracker_id)
                 if tracker_id == -1:
                     continue
 
                 # Fix detected class ID
-                self.object_types[tracker_id].was_detected_as(class_id)
+                self.object_types[tracker_id].was_detected_as(class_id, vx, vy)
                 class_id = self.object_types[tracker_id].get_class()
+                vx, vy = self.object_types[tracker_id].get_velocity()
+
+                if self._filter_track(tracker_id):
+                    continue
 
                 x = xyxy[0]; y = xyxy[1]
                 w = xyxy[2] - x; h = xyxy[3] - y
-                label = f"ID: {tracker_id} {Classes(class_id).TEXT} {confidence:.2f}"
+                label = f"id: {tracker_id} vel: {vx:.3f} {vy:.3f}"
                 color = Classes(class_id).COLOR
 
                 bbs.append(BoundingBox(x, y, w, h, label, color))
@@ -622,4 +639,40 @@ class TrackDetectedObjects:
                 tracked_objects[:, 3] -= tracked_objects[:, 1]
 
             return np_to_overlay_items(tracked_objects, BoundingBox)
+
+    def _get_trackers_velocities(self) -> list[Tuple[float, float]]:
+        velocities = []
+
+        if self._library == self.Library.TRACKERS:
+            for tracker in self.tracker.trackers:
+                vx1, vy1, vx2, vy2 = tracker.state.squeeze().tolist()[4:8]
+                vx = (vx1 + vx2) / 2
+                vy = (vy1 + vy2) / 2
+                velocities.append((vx, vy))
+
+        else:
+            raise NotImplementedError("Velocity extraction is only implemented for the 'Trackers' library.")
+        
+        return velocities
     
+    def _filter_track(self, tracker_id: int) -> bool:
+        """Filters out tracks that are likely noise based on their velocity."""
+        class_id = self.object_types[tracker_id].get_class()
+        vx, vy = self.object_types[tracker_id].get_velocity()
+        l1_speed = abs(vx) + abs(vy)
+
+        if class_id == Classes.VEHICLE.value and l1_speed < self.min_car_l1_speed:
+            return True
+        
+        return False
+
+
+def legend_overlay(frame: np.ndarray) -> List[OverlayItem]:
+    overlays = []
+    for klass in Classes:
+        if klass == Classes.BACKGROUND:
+            continue
+        label = f"{klass.TEXT} color"
+        color = klass.COLOR
+        overlays.append(Text(label, (10, 40 + 40 * klass.value), color))
+    return overlays

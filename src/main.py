@@ -14,7 +14,8 @@ from layers import (
     MedianFilter, 
     CropImage,
     DetectClasses,
-    TrackDetectedObjects
+    TrackDetectedObjects,
+    legend_overlay
 )
 from config import VideosConfig, OUTPUT_DIR, pjoin
 
@@ -35,6 +36,8 @@ def add_layers(video: Video) -> Video:
     video.add_online_overlay(name="Detect Classes", overlay_func=detect_classes)  # TODO: Add detection by score bins
     video.add_online_overlay(name="Track Detected Objects", overlay_func=tracker)
     #video.add_transform("Motion Stabilize Back", motion_stabilizer.warp_back)
+
+    video.add_online_overlay("legend", legend_overlay)
 
     return video
 
