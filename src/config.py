@@ -61,5 +61,5 @@ class Classes(IntEnum):
         return obj
 
     BACKGROUND = 0, Color("#cdcdcd"), "Background"
-    PERSON     = 1, Color("#ff0000"), "Person"
+    PERSON     = 1, Color("#0000ff"), "Person"
     VEHICLE    = 2, Color("#00ff00"), "Vehicle"
