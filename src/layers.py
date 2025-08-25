@@ -445,7 +445,7 @@ class DetectClasses:
         init_frame_num: int = 10,
         return_overlay_items: bool = True
     ) -> None:
-        self.dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (dilate_size, dilate_size))
+        self.dilate_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (dilate_size, dilate_size)) if dilate_size > 0 else None
         self.max_size = max_size
         self.max_ratio = max_ratio
         self.vehicle_min_size = vehicle_min_size
@@ -462,7 +462,8 @@ class DetectClasses:
         if self.frame_num < self.init_frame_num:
             return []
         
-        frame = cv.morphologyEx(frame, cv.MORPH_DILATE, self.dilate_kernel)
+        if self.dilate_kernel is not None:
+            frame = cv.morphologyEx(frame, cv.MORPH_DILATE, self.dilate_kernel)
         contours, _ = cv.findContours(frame, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         # Fill bounding boxes for each contour
         bounding_boxes: List[OverlayItem] = []
@@ -477,7 +478,7 @@ class DetectClasses:
                 continue
             
             if self.return_overlay_items:
-                label = f"{klass.TEXT} {score:.2f}"
+                label = f"{score:.2f}"
                 bounding_boxes.append(BoundingBox(x, y, w, h, label=label, color=klass.COLOR))
             
             xyxy.append([x, y, x + w, y + h])
