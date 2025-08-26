@@ -8,6 +8,36 @@ from config import Classes, VideosConfig
 from video_player import Line, BoundingBox, OverlayItem, Color, Text, np_to_overlay_items
 
 
+class Resizer:
+    """
+    Resize frames to a target size.
+    """
+    def __init__(self, target_size: Tuple[int, int] = (1280, 1024)):
+        self.target_size = target_size
+
+    def get_warper(self, h: float, w: float) -> Callable[[np.ndarray], np.ndarray]:
+        def resize_coords(coords: np.ndarray) -> np.ndarray:
+            return coords  # TODO: The function below is not needed for some reason.
+            th, tw = self.target_size
+            scale_x = tw / w
+            scale_y = th / h
+            resized_coords = coords.copy()
+            resized_coords[..., 0] *= scale_x
+            resized_coords[..., 1] *= scale_y
+            return resized_coords
+        
+        return resize_coords
+    
+    def __call__(self, frame: np.ndarray) -> Tuple[np.ndarray, Optional[Callable]]:
+        assert frame.ndim == 2, "Input frame must be 2D"
+        
+        if frame.shape == self.target_size:
+            return frame, lambda coords: coords  # Identity warper
+        
+        resized_frame = cv.resize(frame, self.target_size)
+        return resized_frame, self.get_warper(*frame.shape)
+
+
 class MedianFilter:
     """
     Drop-in optimized median filter.
@@ -372,7 +402,7 @@ class MotionStabilizer:
         crop_h = int(h * self.crop_percentage)
         crop_w = int(w * self.crop_percentage)
         mask[crop_h:h - crop_h, crop_w:w - crop_w] = 255
-        mask = cv.warpPerspective(mask, self._H, (w, h))
+        mask = cv.warpPerspective(mask, np.concatenate((self._homography_fix, [[0, 0, 1]]), axis=0) @ self._H, (w, h))
         cropped_frame = cv.bitwise_and(frame, mask)
         return cropped_frame
 

@@ -68,7 +68,7 @@ class OverlayItem(ABC):
 
 class BoundingBox(OverlayItem):
     """A class to represent a single bounding box."""
-    def __init__(self, x: int, y: int, width: int, height: int, label: Optional[str] = None, color: Color = Color(0, 255, 0)):
+    def __init__(self, x: int, y: int, width: int, height: int, label: str = "", color: Color = Color(0, 255, 0)):
         self.x = int(x)
         self.y = int(y)
         self.width = int(width)
