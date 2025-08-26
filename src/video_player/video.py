@@ -1,20 +1,23 @@
 import cv2
 import numpy as np
 import os
-from typing import Callable, List, Optional, Dict, Tuple
+from typing import Callable, List, Optional, Dict, Tuple, Any, Union
 from .overlays import Overlay, OverlayItem
+from tqdm import tqdm
 
 class Video:
     """A class to represent a video file, with methods for processing and displaying it."""
 
-    def __init__(self, video_path: str):
+    def __init__(self, video_path: str, grayscale: bool = False):
         """
         Initializes the Video object.
 
         Args:
             video_path: The path to the video file.
+            grayscale: Whether to load the video in grayscale.
         """
         self.video_path = video_path
+        self.grayscale = grayscale
         self.cap = cv2.VideoCapture(video_path)
         if not self.cap.isOpened():
             raise ValueError(f"Error opening video file: {video_path}")
@@ -29,6 +32,8 @@ class Video:
 
         self.overlays: Dict[int, Dict[str, Overlay]] = {}
         self.active_overlays: List[str] = []
+        self.state: Dict[Any, Any] = {}
+        self.play_mode = 'processed'  # 'processed' or 'original_with_remapped'
 
     def __enter__(self):
         return self
@@ -41,6 +46,12 @@ class Video:
         if self.cap.isOpened():
             self.cap.release()
 
+    def set_play_mode(self, mode: str):
+        """Sets the play mode for the video."""
+        if mode not in ['processed', 'original_with_remapped']:
+            raise ValueError("Invalid play mode specified.")
+        self.play_mode = mode
+
     def __iter__(self):
         """Allows iterating over the frames of the video."""
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -48,33 +59,26 @@ class Video:
 
     def __next__(self) -> Tuple[np.ndarray, Dict[str, Overlay]]:
         """Returns the next frame of the video and its corresponding active overlays."""
-        frame_number = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number + 1)
         ret, frame = self.cap.read()
         if not ret:
             raise StopIteration
+        
+        frame_number = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
+        
+        processed_frame, overlays = self.get_frame(frame_number, frame)
+        return processed_frame, overlays
 
-        processed_frame, active_frame_overlays = self.get_frame(frame_number)
-        return processed_frame, active_frame_overlays
-
-    def add_transform(self, name: str, transform_func: Callable[[np.ndarray], np.ndarray]):
+    def add_transform(self, name: str, transform_func: Union[Callable[[np.ndarray], np.ndarray], Callable[[np.ndarray, Dict[Any, Any]], np.ndarray]]):
         """
         Adds a transformation function to be applied to each frame.
-
-        Args:
-            name: A unique name for the transformation.
-            transform_func: A function that takes a frame (NumPy array) and returns a transformed frame.
+        The function can optionally return a warp function for coordinate remapping.
         """
         self.operations.append((name, 'transform', transform_func))
         self.active_operations.append(name)
 
-    def add_online_overlay(self, name: str, overlay_func: Callable[[np.ndarray], List[OverlayItem]]):
+    def add_online_overlay(self, name: str, overlay_func: Union[Callable[[np.ndarray], List[OverlayItem]], Callable[[np.ndarray, Dict[Any, Any]], List[OverlayItem]]]):
         """
         Adds an online overlay to be generated on the fly.
-
-        Args:
-            name: A unique name for the online overlay.
-            overlay_func: A function that takes a frame and returns a list of OverlayItem objects.
         """
         self.operations.append((name, 'online_overlay', overlay_func))
         self.active_operations.append(name)
@@ -92,10 +96,6 @@ class Video:
     def add_overlay_to_frame(self, frame_number: int, overlay: Overlay):
         """
         Adds an overlay to be applied to a specific frame.
-
-        Args:
-            frame_number: The frame number to apply the overlay to.
-            overlay: An Overlay object.
         """
         if frame_number not in self.overlays:
             self.overlays[frame_number] = {}
@@ -124,28 +124,35 @@ class Video:
         elif not active and name in self.active_overlays:
             self.active_overlays.remove(name)
 
-    def get_frame(self, frame_index: int) -> Tuple[np.ndarray, Dict[str, Overlay]]:
+    def _process_frame_processed_mode(self, frame: np.ndarray, frame_index: int) -> Tuple[np.ndarray, Dict[str, Overlay]]:
         """
-        Gets a specific frame, applies transformations and overlays.
+        Applies transformations and overlays to a given frame for 'processed' mode.
         """
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-        ret, frame = self.cap.read()
-        if not ret:
-            raise IndexError("Frame index out of range")
+        if self.grayscale and len(frame.shape) == 3:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        processed_frame = frame.copy()
+        processed_frame = frame
         online_overlay_items = []
 
         for name, op_type, func in self.operations:
             if name in self.active_operations:
                 if op_type == 'transform':
-                    processed_frame = func(processed_frame)
-                elif op_type == 'online_overlay':
-                    online_overlay_items.extend(func(processed_frame))
+                    try:
+                        result = func(processed_frame, self.state)
+                    except TypeError:
+                        result = func(processed_frame)
+                    
+                    if isinstance(result, tuple) and len(result) == 2:
+                        processed_frame, _ = result
+                    else:
+                        processed_frame = result
 
-        # Ensure the frame is in color before applying overlays
-        if len(processed_frame.shape) == 2 or processed_frame.shape[2] == 1:
-            processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_GRAY2BGR)
+                elif op_type == 'online_overlay':
+                    try:
+                        new_overlay_items = func(processed_frame, self.state)
+                    except TypeError:
+                        new_overlay_items = func(processed_frame)
+                    online_overlay_items.extend(new_overlay_items)
 
         active_frame_overlays = {}
         if frame_index in self.overlays:
@@ -156,31 +163,125 @@ class Video:
         if online_overlay_items:
             active_frame_overlays['online_overlays'] = Overlay(name='online_overlays', overlay_items=online_overlay_items)
 
-        output_frame = processed_frame.copy()
+        if len(processed_frame.shape) == 2 or processed_frame.shape[2] == 1:
+            processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_GRAY2BGR)
         for overlay in active_frame_overlays.values():
-            output_frame = overlay.apply(output_frame)
+            processed_frame = overlay.apply(processed_frame)
 
-        return output_frame, active_frame_overlays
+        return processed_frame, active_frame_overlays
 
-    def save_frames_where(self, predicate: Callable[[np.ndarray], bool], output_dir: str = "output"):
+    def _get_original_with_remapped_overlays(self, frame: np.ndarray, frame_index: int) -> np.ndarray:
         """
-        Saves frames from the video that satisfy a given predicate.
-        The predicate is applied on the transformed frame. Active overlays are applied to the saved image.
+        Gets the original frame and applies overlays remapped from the transformed space.
         """
-        os.makedirs(output_dir, exist_ok=True)
+        original_frame = frame.copy()
+        processed_frame = frame
+        if self.grayscale and len(processed_frame.shape) == 3:
+            processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
 
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        frame_idx = 0
-        while self.cap.isOpened():
+        warp_funcs = []
+        all_overlay_items = []
+
+        # Handle online overlays
+        for name, op_type, func in self.operations:
+            if name in self.active_operations:
+                if op_type == 'transform':
+                    try:
+                        result = func(processed_frame, self.state)
+                    except TypeError:
+                        result = func(processed_frame)
+                    
+                    if isinstance(result, tuple) and len(result) == 2:
+                        processed_frame, warp_func = result
+                        if warp_func:
+                            warp_funcs.append(warp_func)
+                    else:
+                        processed_frame = result
+                
+                elif op_type == 'online_overlay':
+                    try:
+                        new_overlay_items = func(processed_frame, self.state)
+                    except TypeError:
+                        new_overlay_items = func(processed_frame)
+                    
+                    if warp_funcs:
+                        for item in new_overlay_items:
+                            item.warp(list(reversed(warp_funcs)))
+                    
+                    all_overlay_items.extend(new_overlay_items)
+
+        # Handle offline overlays
+        if frame_index in self.overlays:
+            for overlay_name in self.active_overlays:
+                if overlay_name in self.overlays[frame_index]:
+                    offline_overlay = self.overlays[frame_index][overlay_name]
+                    all_overlay_items.extend(offline_overlay.overlay_items)
+
+        # Apply remapped overlays to the original frame
+        final_frame = original_frame
+        if len(final_frame.shape) == 2:
+            final_frame = cv2.cvtColor(final_frame, cv2.COLOR_GRAY2BGR)
+            
+        remapped_overlay = Overlay(name="remapped", overlay_items=all_overlay_items)
+        final_frame = remapped_overlay.apply(final_frame)
+
+        return final_frame
+
+    def get_frame(self, frame_index: int, frame: Optional[np.ndarray] = None) -> Tuple[np.ndarray, Dict[str, Overlay]]:
+        """
+        Gets a specific frame by seeking, applies transformations and overlays.
+        """
+        if frame is None:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
             ret, frame = self.cap.read()
             if not ret:
-                break
+                raise IndexError("Frame index out of range")
 
+        if self.play_mode == 'original_with_remapped':
+            processed_frame = self._get_original_with_remapped_overlays(frame, frame_index)
+            return processed_frame, {}
+        else:
+            processed_frame, overlays = self._process_frame_processed_mode(frame, frame_index)
+            return processed_frame, overlays
+
+    def save_frames_where(self, predicate: Optional[Callable[[np.ndarray], bool]] = None, output_dir: str = "output"):
+        """
+        Saves frames from the video that satisfy a given predicate.
+        """
+        predicate = predicate or (lambda x: True)
+        os.makedirs(output_dir, exist_ok=True)
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        for frame_idx in tqdm(range(self.frame_count), desc="Processing and saving frames"):
             processed_frame, _ = self.get_frame(frame_idx)
-
             if predicate(processed_frame):
                 filepath = os.path.join(output_dir, f"frame_{frame_idx}.jpg")
                 cv2.imwrite(filepath, processed_frame)
-                print(f"Saved frame {frame_idx} to {filepath}")
-            frame_idx += 1
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    def save_video(self, output_path: str, codec: str = 'mp4v', fps: Optional[float] = None):
+        """
+        Saves the video with applied transformations and overlays to a file.
+        """
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        if fps is None:
+            fps = self.fps
+
+        fourcc = cv2.VideoWriter.fourcc(*codec)
+        
+        try:
+            processed_frame, _ = self.get_frame(0)
+        except IndexError:
+            print("Video has no frames.")
+            return
+
+        height, width, _ = processed_frame.shape
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        for frame_idx in tqdm(range(self.frame_count), desc="Saving video"):
+            processed_frame, _ = self.get_frame(frame_idx)
+            out.write(processed_frame)
+
+        out.release()
+        print(f"Video saved to {output_path}")
