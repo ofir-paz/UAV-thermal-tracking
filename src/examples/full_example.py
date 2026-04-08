@@ -5,9 +5,10 @@ from video_player import Video, DesktopPlayer, load_bounding_boxes_from_csv, can
 
 def main():
     """A full example demonstrating the features of the video framework."""
-    video_path = Path().resolve().parent.parent / "testing" / "resources" / "sample.mp4"
-    annotations_path = Path().resolve().parent.parent / "testing" / "resources" / "annotations.csv"
-    output_path = Path().resolve().parent.parent / "testing" / "output"
+    repo_root = Path(__file__).resolve().parents[2]
+    video_path = repo_root / "testing" / "resources" / "sample.mp4"
+    annotations_path = repo_root / "testing" / "resources" / "annotations.csv"
+    output_path = repo_root / "testing" / "output"
 
     with Video(str(video_path)) as video:
         # Load bounding boxes from the CSV file

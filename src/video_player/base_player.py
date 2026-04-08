@@ -1,5 +1,3 @@
-import threading
-import time
 import cv2
 import os
 import numpy as np
@@ -7,7 +5,6 @@ from abc import ABC, abstractmethod
 from collections import deque
 
 from .video import Video
-from .overlays import Overlay
 
 class BasePlayer(ABC):
     """Abstract base class for video players."""
@@ -29,7 +26,7 @@ class BasePlayer(ABC):
 
     def _save_frame(self):
         os.makedirs(self.output_dir, exist_ok=True)
-        processed_frame = self.video.get_frame(self.current_frame_index)
+        processed_frame, _ = self.video.get_frame(self.current_frame_index)
         filepath = os.path.join(self.output_dir, f"frame_{self.current_frame_index}.jpg")
         cv2.imwrite(filepath, processed_frame)
         print(f"Frame {self.current_frame_index} saved to {filepath}")
@@ -50,7 +47,7 @@ class BasePlayer(ABC):
         self._update_frame(processed_frame)
 
     @abstractmethod
-    def _update_frame(self):
+    def _update_frame(self, processed_frame: np.ndarray):
         """Abstract method to update the displayed frame. Must be implemented by subclasses."""
         pass
 

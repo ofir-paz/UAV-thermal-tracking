@@ -17,11 +17,10 @@ class Resizer:
 
     def get_warper(self, h: float, w: float) -> Callable[[np.ndarray], np.ndarray]:
         def resize_coords(coords: np.ndarray) -> np.ndarray:
-            return coords  # TODO: The function below is not needed for some reason.
             th, tw = self.target_size
             scale_x = tw / w
             scale_y = th / h
-            resized_coords = coords.copy()
+            resized_coords = coords.astype(np.float32).copy()
             resized_coords[..., 0] *= scale_x
             resized_coords[..., 1] *= scale_y
             return resized_coords
@@ -366,12 +365,23 @@ class MotionStabilizer:
         is_extracted = self._extract_state_metadata(frame, state)
         if not is_extracted:
             return frame, None
+
+        if self._current_pts.shape[0] < 4 or self._last_pts.shape[0] < 4:
+            return frame, (lambda coords: coords)
         
         h, w = frame.shape[:2]
     
         H_ransac, inlier_mask = cv.findHomography(self._current_pts, self._last_pts, cv.RANSAC, 3.0)
+        if H_ransac is None or inlier_mask is None:
+            return frame, (lambda coords: coords)
+
         inliers = inlier_mask.ravel().astype(bool)
+        if np.count_nonzero(inliers) < 4:
+            return frame, (lambda coords: coords)
+
         H_to_last, _ = cv.findHomography(self._current_pts[inliers], self._last_pts[inliers], 0, 3.0)
+        if H_to_last is None:
+            return frame, (lambda coords: coords)
 
         self._H @= H_to_last
         self._H /= (self._H[2, 2] + 1e-12)  # Normalize
@@ -382,8 +392,9 @@ class MotionStabilizer:
             _a = self.fixer_ema_factor
             warped_points = cv.perspectiveTransform(self._current_pts[inliers].reshape(-1, 1, 2), self._H)
             affine_2, _ = cv.estimateAffine2D(warped_points, self._first_pts[inliers], method=cv.LMEDS, refineIters=100)
-            self._homography_fix = _a * self._homography_fix + (1 - _a) * affine_2
-            warped = cv.warpAffine(warped, self._homography_fix, (w, h))
+            if affine_2 is not None:
+                self._homography_fix = _a * self._homography_fix + (1 - _a) * affine_2
+                warped = cv.warpAffine(warped, self._homography_fix, (w, h))
 
         def warp_func(coords: np.ndarray) -> np.ndarray:
             H_inv = np.linalg.inv(np.concatenate((self._homography_fix, [[0, 0, 1]]), axis=0) @ self._H)
@@ -597,7 +608,13 @@ class TrackDetectedObjects:
         self._library = self.Library(library.lower())
 
         if self._library == self.Library.TRACKERS:
-            from trackers import SORTTracker
+            try:
+                from trackers import SORTTracker
+            except ImportError as exc:
+                raise ImportError(
+                    "TrackDetectedObjects(library='Trackers') requires the optional 'trackers' package. "
+                    "Install and pin it in your environment, or use library='SORT'."
+                ) from exc
             self.tracker = SORTTracker(
                 lost_track_buffer=max_age, 
                 frame_rate=kwargs.get("frame_rate", VideosConfig.FRAME_RATE),

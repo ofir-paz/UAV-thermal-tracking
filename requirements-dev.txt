@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest==8.4.1
+ipython==9.4.0
+ipywidgets==8.1.7
+jupyter==1.1.1

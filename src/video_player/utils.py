@@ -1,6 +1,18 @@
 import csv
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Callable
+import cv2
+import numpy as np
 from .overlays import Overlay, BoundingBox
+
+
+def canny_edge_detector(threshold1: int = 100, threshold2: int = 200) -> Callable[[np.ndarray], np.ndarray]:
+    """Returns a transform function that applies Canny edge detection."""
+    def _canny(frame: np.ndarray) -> np.ndarray:
+        gray = frame
+        if frame.ndim == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return cv2.Canny(gray, threshold1, threshold2)
+    return _canny
 
 def load_bounding_boxes_from_csv(filepath: str, overlay_name: str = "default_overlay") -> Dict[int, Dict[str, Overlay]]:
     """

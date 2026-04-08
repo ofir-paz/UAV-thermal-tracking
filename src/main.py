@@ -1,18 +1,11 @@
-from typing import List, Tuple, Optional, Deque, Callable, Dict, Any
-from collections import deque
-import cv2 as cv
-import numpy as np
-from video_streamer import Streamer
-from video_player import JupyterPlayer, DesktopPlayer, Video, Point, Line, np_to_overlay_items, OverlayItem
+from video_player import DesktopPlayer, Video
 from layers import (
     OpticalFlowLambda, 
     MotionStabilizer, 
     BackgroundSubtraction, 
     get_morphological_op, 
-    HighPassFilter, 
     BandPassFilter, 
     MedianFilter, 
-    CropImage,
     DetectClasses,
     TrackDetectedObjects,
     legend_overlay
@@ -24,7 +17,7 @@ def add_layers(video: Video) -> Video:
     flow_overlay = OpticalFlowLambda(return_overlay_items=False)
     motion_stabilizer = MotionStabilizer(crop_percentage=0.05, fixer_ema_factor=0.975)
     detect_classes = DetectClasses(dilate_size=0, return_overlay_items=False)
-    tracker = TrackDetectedObjects(max_age=35, min_hits=35, iou_threshold=0.1, score_threshold=0.47, library="Trackers")
+    tracker = TrackDetectedObjects(max_age=35, min_hits=35, iou_threshold=0.1, score_threshold=0.47, library="SORT")
 
     video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
     video.add_transform("Motion Stabilize", motion_stabilizer.get_corrected_frame)
