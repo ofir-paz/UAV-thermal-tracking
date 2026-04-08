@@ -23,8 +23,8 @@ OverlayStep = Tuple[str, Callable]
 
 def _build_pipeline_components() -> Tuple[MotionStabilizer, OpticalFlowLambda, DetectClasses, TrackDetectedObjects]:
     """Create the stateful algorithm components used by the processing pipeline."""
-    motion_stabilizer = MotionStabilizer(crop_percentage=0.05, fixer_ema_factor=0.975)
     flow_overlay = OpticalFlowLambda(return_overlay_items=False)
+    motion_stabilizer = MotionStabilizer(crop_percentage=0.05, fixer_ema_factor=0.975)
     detect_classes = DetectClasses(dilate_size=0, return_overlay_items=False)
     tracker = TrackDetectedObjects(max_age=35, min_hits=35, iou_threshold=0.1, score_threshold=0.47, library="Trackers")
     return motion_stabilizer, flow_overlay, detect_classes, tracker
