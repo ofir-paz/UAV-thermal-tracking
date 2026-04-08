@@ -12,7 +12,7 @@ Thermal video processing and object tracking pipeline for UAV footage.
 
 ## Python version
 
-Use Python `3.11` (pinned in `.python-version`).
+Use Python `3.11.6` (pinned in `.python-version`).
 
 ## Setup
 
