@@ -4,11 +4,11 @@ Thermal video processing and object tracking pipeline for UAV footage.
 
 ## Repository layout
 
-- `/home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/src/main.py` – main pipeline and entrypoint
-- `/home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/src/layers.py` – processing layers (stabilization, filtering, detection, tracking)
-- `/home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/src/video_player` – internal video player/overlay framework (internalized mini-repo)
-- `/home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/src/video_streamer.py` – chunk-based video streaming utility
-- `/home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/testing/resources` – sample assets used by examples/tests
+- `src/main.py` – main pipeline and entrypoint
+- `src/layers.py` – processing layers (stabilization, filtering, detection, tracking)
+- `src/video_player` – internal video player/overlay framework (internalized mini-repo)
+- `src/video_streamer.py` – chunk-based video streaming utility
+- `testing/resources` – sample assets used by examples/tests
 
 ## Python version
 
@@ -17,13 +17,13 @@ Use Python `3.11` (pinned in `.python-version`).
 ## Setup
 
 ```bash
-pip install -r /home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/requirements.txt
+pip install -r requirements.txt
 ```
 
 For development and tests:
 
 ```bash
-pip install -r /home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/requirements-dev.txt
+pip install -r requirements-dev.txt
 ```
 
 ## Run
@@ -31,7 +31,7 @@ pip install -r /home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/requi
 Validated single entrypoint:
 
 ```bash
-python /home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/src/main.py
+python src/main.py
 ```
 
 ## Pipeline summary
@@ -51,7 +51,7 @@ The main processing chain in `src/main.py` is:
 
 ## Notes on tracking implementation
 
-`/home/runner/work/UAV-thermal-tracking/UAV-thermal-tracking/src/sort.py` now contains a project-owned, MIT-compatible SORT-style tracker implementation used when `library="SORT"`.
+`src/sort.py` now contains a project-owned, MIT-compatible SORT-style tracker implementation used when `library="SORT"`.
 
 If you select `library="Trackers"`, install and pin the external `trackers` package in your environment explicitly.
 
