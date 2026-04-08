@@ -1,18 +1,15 @@
-from typing import List, Tuple, Optional, Deque, Callable, Dict, Any
-from collections import deque
-import cv2 as cv
-import numpy as np
-from video_streamer import Streamer
-from video_player import JupyterPlayer, DesktopPlayer, Video, Point, Line, np_to_overlay_items, OverlayItem
+"""Entry point for the final UAV thermal tracking pipeline."""
+
+from typing import Callable, Sequence, Tuple
+
+from video_player import DesktopPlayer, Video
 from layers import (
-    OpticalFlowLambda, 
-    MotionStabilizer, 
-    BackgroundSubtraction, 
-    get_morphological_op, 
-    HighPassFilter, 
-    BandPassFilter, 
+    OpticalFlowLambda,
+    MotionStabilizer,
+    BackgroundSubtraction,
+    get_morphological_op,
+    BandPassFilter,
     MedianFilter, 
-    CropImage,
     DetectClasses,
     TrackDetectedObjects,
     legend_overlay
@@ -20,24 +17,49 @@ from layers import (
 from config import VideosConfig, OUTPUT_DIR, pjoin
 
 
-def add_layers(video: Video) -> Video:
-    flow_overlay = OpticalFlowLambda(return_overlay_items=False)
+TransformStep = Tuple[str, Callable]
+OverlayStep = Tuple[str, Callable]
+
+
+def _build_pipeline_components() -> Tuple[MotionStabilizer, OpticalFlowLambda, DetectClasses, TrackDetectedObjects]:
+    """Create the stateful algorithm components used by the processing pipeline."""
     motion_stabilizer = MotionStabilizer(crop_percentage=0.05, fixer_ema_factor=0.975)
+    flow_overlay = OpticalFlowLambda(return_overlay_items=False)
     detect_classes = DetectClasses(dilate_size=0, return_overlay_items=False)
     tracker = TrackDetectedObjects(max_age=35, min_hits=35, iou_threshold=0.1, score_threshold=0.47, library="Trackers")
+    return motion_stabilizer, flow_overlay, detect_classes, tracker
 
-    video.add_online_overlay(name="Optical Flow", overlay_func=flow_overlay)
-    video.add_transform("Motion Stabilize", motion_stabilizer.get_corrected_frame)
-    video.add_transform("Temporal Median", MedianFilter(1, 5, 2))
-    video.add_transform("Band Pass Filter", BandPassFilter(0.5, 6))
-    video.add_transform("Background Subtraction", BackgroundSubtraction("KNN"))
-    video.add_transform("Crop Image", motion_stabilizer.post_warp_crop)
-    video.add_transform("Morphological Operation", get_morphological_op(3, 4, (7, 9)))
-    video.add_online_overlay(name="Detect Classes", overlay_func=detect_classes)  # TODO: Add detection by score bins
-    video.add_online_overlay(name="Track Detected Objects", overlay_func=tracker)
-    #video.add_transform("Motion Stabilize Back", motion_stabilizer.warp_back)
 
-    video.add_online_overlay("legend", legend_overlay)
+def _transform_steps(motion_stabilizer: MotionStabilizer) -> Sequence[TransformStep]:
+    """Ordered frame-processing stages of the final algorithm."""
+    return (
+        ("Motion Stabilize", motion_stabilizer.get_corrected_frame),
+        ("Temporal Median", MedianFilter(1, 5, 2)),
+        ("Band Pass Filter", BandPassFilter(0.5, 6)),
+        ("Background Subtraction", BackgroundSubtraction("KNN")),
+        ("Crop Image", motion_stabilizer.post_warp_crop),
+        ("Morphological Operation", get_morphological_op(3, 4, (7, 9))),
+    )
+
+
+def _overlay_steps(flow_overlay: OpticalFlowLambda, detect_classes: DetectClasses, tracker: TrackDetectedObjects) -> Sequence[OverlayStep]:
+    """Ordered online overlays for visualization and tracking output."""
+    return (
+        ("Optical Flow", flow_overlay),
+        ("Detect Classes", detect_classes),
+        ("Track Detected Objects", tracker),
+        ("legend", legend_overlay),
+    )
+
+
+def add_layers(video: Video) -> Video:
+    motion_stabilizer, flow_overlay, detect_classes, tracker = _build_pipeline_components()
+
+    for name, transform in _transform_steps(motion_stabilizer):
+        video.add_transform(name, transform)
+
+    for name, overlay in _overlay_steps(flow_overlay, detect_classes, tracker):
+        video.add_online_overlay(name=name, overlay_func=overlay)
 
     return video
 
